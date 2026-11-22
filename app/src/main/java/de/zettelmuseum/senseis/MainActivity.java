@@ -30,7 +30,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -250,7 +249,7 @@ public class MainActivity extends Activity {
         if (path == null) return response("text/plain", "utf-8", new byte[0], 400, "Bad path");
         Cursor cursor = null;
         try {
-            cursor = database.rawQuery("SELECT mime,encoding,data,name FROM files WHERE path=?", new String[]{path});
+            cursor = database.rawQuery("SELECT mime,encoding,name FROM files WHERE path=?", new String[]{path});
             if (!cursor.moveToFirst()) {
                 String alias = findAlias(path);
                 if (alias != null && !alias.equals(path)) return routeRequest(Uri.parse(BASE_URL + Uri.encode(alias, "/!$&'()*+,;=:@-._~")));
@@ -258,9 +257,8 @@ public class MainActivity extends Activity {
             }
             String mime = cursor.getString(0);
             String encoding = cursor.getString(1);
-            byte[] bytes = cursor.getBlob(2);
-            String name = cursor.getString(3);
-            if ("deflate".equals(encoding)) bytes = inflate(bytes);
+            String name = cursor.getString(2);
+            InputStream dataStream = openPayloadStream(path, encoding);
             if (mime == null) mime = "application/octet-stream";
             String charset = mime.startsWith("text/") || mime.contains("xml") || mime.contains("javascript") || mime.equals("image/svg+xml") ? "utf-8" : null;
             Map<String, String> headers = new HashMap<String, String>();
@@ -271,7 +269,7 @@ public class MainActivity extends Activity {
                 mime = "application/x-go-sgf";
                 charset = null;
             }
-            return new WebResourceResponse(mime, charset, 200, "OK", headers, new ByteArrayInputStream(bytes));
+            return new WebResourceResponse(mime, charset, 200, "OK", headers, dataStream);
         } catch (Exception e) {
             return response("text/plain", "utf-8", ("Unable to read local file: " + e.getMessage()).getBytes(), 500, "Database error");
         } finally {
@@ -293,14 +291,72 @@ public class MainActivity extends Activity {
         return new WebResourceResponse(mime, charset, new ByteArrayInputStream(data));
     }
 
-    private byte[] inflate(byte[] compressed) throws Exception {
-        InputStream input = new InflaterInputStream(new ByteArrayInputStream(compressed));
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        int read;
-        while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-        input.close();
-        return output.toByteArray();
+    private InputStream openPayloadStream(String path, String encoding) {
+        InputStream input = new DatabaseBlobInputStream(path);
+        return "deflate".equals(encoding) ? new InflaterInputStream(input) : input;
+    }
+
+    /** Reads a SQLite BLOB in small chunks so large images/attachments do not
+     * need to be copied into one large Java byte array on this low-memory device. */
+    private class DatabaseBlobInputStream extends InputStream {
+        private static final int CHUNK_SIZE = 64 * 1024;
+        private final String path;
+        private byte[] chunk = new byte[0];
+        private int position = 0;
+        private long nextOffset = 1;
+        private boolean finished = false;
+
+        DatabaseBlobInputStream(String filePath) { path = filePath; }
+
+        private boolean loadChunk() {
+            if (finished) return false;
+            Cursor c = null;
+            try {
+                c = database.rawQuery("SELECT substr(data, ?, ?) FROM files WHERE path=?",
+                        new String[]{String.valueOf(nextOffset), String.valueOf(CHUNK_SIZE), path});
+                if (!c.moveToFirst() || c.isNull(0)) {
+                    finished = true;
+                    return false;
+                }
+                chunk = c.getBlob(0);
+                position = 0;
+                if (chunk == null || chunk.length == 0) {
+                    finished = true;
+                    return false;
+                }
+                nextOffset += chunk.length;
+                return true;
+            } catch (Exception e) {
+                finished = true;
+                return false;
+            } finally { if (c != null) c.close(); }
+        }
+
+        @Override public int read() {
+            byte[] one = new byte[1];
+            int count = read(one, 0, 1);
+            return count < 0 ? -1 : (one[0] & 0xff);
+        }
+
+        @Override public int read(byte[] buffer, int offset, int length) {
+            if (buffer == null) throw new NullPointerException("buffer");
+            if (offset < 0 || length < 0 || length > buffer.length - offset) throw new IndexOutOfBoundsException();
+            if (length == 0) return 0;
+            int copied = 0;
+            while (copied < length) {
+                if (position >= chunk.length && !loadChunk()) return copied == 0 ? -1 : copied;
+                int amount = Math.min(length - copied, chunk.length - position);
+                System.arraycopy(chunk, position, buffer, offset + copied, amount);
+                position += amount;
+                copied += amount;
+            }
+            return copied;
+        }
+
+        @Override public void close() {
+            finished = true;
+            chunk = new byte[0];
+        }
     }
 
     private String decodePath(String encoded) {
@@ -584,17 +640,19 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 String error = null;
                 try {
-                    Cursor cursor = database.rawQuery("SELECT data,encoding FROM files WHERE path=?", new String[]{path});
+                    Cursor cursor = database.rawQuery("SELECT encoding FROM files WHERE path=?", new String[]{path});
                     if (!cursor.moveToFirst()) throw new IllegalStateException("SGF data is missing");
-                    byte[] bytes = cursor.getBlob(0);
-                    String encoding = cursor.getString(1);
+                    String encoding = cursor.getString(0);
                     cursor.close();
-                    if ("deflate".equals(encoding)) bytes = inflate(bytes);
+                    InputStream input = openPayloadStream(path, encoding);
                     OutputStream output = getContentResolver().openOutputStream(destination);
                     if (output == null) throw new IllegalStateException("Cannot open destination");
-                    output.write(bytes);
+                    byte[] buffer = new byte[64 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
                     output.flush();
                     output.close();
+                    input.close();
                 } catch (Exception e) { error = e.getMessage() == null ? e.toString() : e.getMessage(); }
                 final String finalError = error;
                 mainHandler.post(new Runnable() {
