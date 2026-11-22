@@ -1,16 +1,31 @@
-# Sensei's Library EPUB
+# Sensei's Library — offline Android edition
 
-This repository builds an offline EPUB from the public Sensei's Library snapshot:
+This repository builds an offline Android reader and a SQLite database from the public Sensei's Library snapshot:
 
 https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2
 
-## Build
+## Build with GitHub Actions
 
-1. Open the **Actions** tab.
-2. Select **Build Sensei's Library EPUB**.
-3. Choose **Run workflow** on the `main` branch.
-4. When the run finishes, download the `senseis-library-epub` artifact.
+1. Open **Actions**.
+2. Select **Build Sensei's Library Android app and SQLite database**.
+3. Run the workflow on `main`.
+4. Download both artifacts from the completed run:
+   - `senseis-android-app` — install `SenseisLibrary.apk`.
+   - `senseis-offline-database` — contains `senseis.db`.
+5. Start the app, tap **Import offline library database**, and select `senseis.db`.
 
-The EPUB contains the archived HTML pages, an alphabetical index, and locally embedded images referenced by those pages. Wiki links that resolve to pages in the snapshot are rewritten to EPUB chapter links, including their fragment anchors. Links to pages absent from the snapshot remain clickable web links.
+The APK and database are intentionally separate. The APK stays small; the large snapshot database is copied into the app's private storage on first import. The library then works offline and does not request internet permission.
 
-The generated EPUB is uploaded as a workflow artifact and is not committed to the repository.
+## Snapshot conversion
+
+`scripts/build_database.py` reads the bzip2-compressed tar archive as a stream. It does **not** extract the full 50,000+ file archive onto disk. Every regular archive file is stored in SQLite, with text payloads deflated when that reduces size. HTML pages are indexed by path, filename, title and wiki-style `Group.Page` aliases. Internal links are mapped to the local `https://senseis.local/` WebView origin; fragment identifiers are retained. Images, stylesheets, scripts and other attachments are served from the same database. SGF links open Android's document-creation picker so the original SGF file can be saved to a user-selected location.
+
+## Bounded snapshot tests
+
+The workflow runs synthetic archive tests, then scans at most the first 15,000 archive members and extracts no more than 80 HTML pages into a temporary sample directory. It reports page titles, headings, links, images, forms, scripts and SGF links before starting the complete streaming database import. This checks the real snapshot's structure without unpacking the entire archive.
+
+The full converter subsequently streams all regular files directly into `senseis.db`. No 50,000-file directory tree is created.
+
+## Android build
+
+The app is a small Java-only WebView application and is built directly with the Android SDK command-line tools (no Gradle project). The WebView serves HTML and attachments from SQLite at a local HTTPS origin; requests to other network hosts are blocked. The app includes title/text search, home/back/forward navigation, database import, and SGF export via Android's Storage Access Framework.
