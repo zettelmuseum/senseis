@@ -483,7 +483,7 @@ public class MainActivity extends Activity {
                     for (String term : terms) {
                         if (term.length() == 0) continue;
                         if (fts.length() > 0) fts.append(" AND ");
-                        fts.append("\\\"").append(term.replace("\\\"", "\\\"\\\"")).append("\\\"");
+                        fts.append("\"").append(term.replace("\"", "\"\"")).append("\"");
                     }
                     String ftsQuery = fts.toString();
                     cursor = database.rawQuery("SELECT path,title FROM pages_search WHERE pages_search MATCH ? ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, title COLLATE NOCASE LIMIT 100",
