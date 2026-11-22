@@ -37,7 +37,15 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Download Sensei's Library snapshot
+      - name: Restore cached Sensei's Library snapshot
+        id: snapshot-cache
+        uses: actions/cache@v4
+        with:
+          path: build/senseis-library.tar.bz2
+          key: senseis-library-snapshot-v1
+
+      - name: Download Sensei's Library snapshot (cache miss only)
+        if: steps.snapshot-cache.outputs.cache-hit != 'true'
         env:
           SNAPSHOT_URL: https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2
         run: |
@@ -46,6 +54,9 @@ jobs:
             --retry 5 --retry-all-errors --retry-delay 5 \
             --connect-timeout 30 --max-time 7200 \
             "$SNAPSHOT_URL" --output build/senseis-library.tar.bz2
+
+      - name: Verify cached snapshot archive
+        run: |
           test -s build/senseis-library.tar.bz2
           bzip2 -t build/senseis-library.tar.bz2
           echo "Snapshot archive: $(du -h build/senseis-library.tar.bz2 | cut -f1)"
@@ -122,6 +133,8 @@ jobs:
               f"- Sample scan: {analysis['members_scanned']:,} archive members; {analysis['sampled_pages']:,} HTML pages extracted for analysis",
               f"- SQLite database: {database['files']:,} files; {database['pages']:,} wiki pages; {database['sgf_files']:,} SGF files",
               f"- Database size: {database['database_bytes']:,} bytes",
+              f"- Images removed (>500 KiB): {database['images_removed']:,} ({database['image_bytes_removed']:,} source bytes)",
+              f"- PNGs quantized to 32 colors and scaled to 75%: {database['png_optimized']:,}; estimated bytes saved: {database['png_bytes_saved']:,}",
               f"- Database build time: {database['seconds']} seconds",
               f"- Android APK: {Path('app/build/SenseisLibrary.apk').stat().st_size:,} bytes",
               "",
