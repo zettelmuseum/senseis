@@ -133,6 +133,7 @@ jobs:
               f"- Sample scan: {analysis['members_scanned']:,} archive members; {analysis['sampled_pages']:,} HTML pages extracted for analysis",
               f"- SQLite database: {database['files']:,} files; {database['pages']:,} wiki pages; {database['sgf_files']:,} SGF files",
               f"- Database size: {database['database_bytes']:,} bytes",
+              f"- Database schema: {database.get('schema_version', 'unknown')}",
               f"- Images removed (>500 KiB): {database['images_removed']:,} ({database['image_bytes_removed']:,} source bytes)",
               f"- PNGs quantized to 32 colors and scaled to 75%: {database['png_optimized']:,}; estimated bytes saved: {database['png_bytes_saved']:,}",
               f"- Database build time: {database['seconds']} seconds",
