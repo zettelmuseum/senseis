@@ -478,7 +478,14 @@ public class MainActivity extends Activity {
                 Cursor cursor = null;
                 try {
                     String pattern = "%" + query.replace("%", "\\%").replace("_", "\\_") + "%";
-                    String ftsQuery = "\"" + query.replace("\"", "\"\"") + "\"";
+                    String[] terms = query.trim().split("\\s+");
+                    StringBuilder fts = new StringBuilder();
+                    for (String term : terms) {
+                        if (term.length() == 0) continue;
+                        if (fts.length() > 0) fts.append(" AND ");
+                        fts.append("\\\"").append(term.replace("\\\"", "\\\"\\\"")).append("\\\"");
+                    }
+                    String ftsQuery = fts.toString();
                     cursor = database.rawQuery("SELECT path,title FROM pages_search WHERE pages_search MATCH ? ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, title COLLATE NOCASE LIMIT 100",
                             new String[]{ftsQuery, pattern});
                     while (cursor.moveToNext()) results.add(new String[]{cursor.getString(0), cursor.getString(1)});
