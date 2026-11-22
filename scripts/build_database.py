@@ -363,7 +363,7 @@ def write_home_page(conn: sqlite3.Connection, file_count: int, page_count: int) 
     conn.execute("INSERT OR REPLACE INTO metadata(key,value) VALUES('start_path','__senseis_home__.html')")
 
 
-def build_database(archive: Path, output: Path, progress_every: int = 2500) -> dict[str, int]:
+def build_database(archive: Path, output: Path, progress_every: int = 2500) -> dict[str, int | str]:
     if not archive.is_file() or archive.stat().st_size == 0:
         raise RuntimeError(f"Snapshot archive is missing or empty: {archive}")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -515,6 +515,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             "uncompressed_bytes": int(counters["bytes_original"]),
             "images_removed": int(counters["images_removed"]),
             "image_bytes_removed": int(counters["image_bytes_removed"]),
+            "png_optimizer": str(counters["png_optimizer_version"]) if counters["png_optimizer_version"] else "not used",
+            "png_files_seen": int(counters["png_files_seen"]),
             "png_optimized": int(counters["png_optimized"]),
             "png_bytes_before": int(counters["png_bytes_before"]),
             "png_bytes_after": int(counters["png_bytes_after"]),
