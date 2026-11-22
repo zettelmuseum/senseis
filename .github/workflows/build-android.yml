@@ -110,7 +110,7 @@ jobs:
               "",
               "Download both artifacts: install the APK, then open the app and import `senseis.db` using the Android file picker.",
           ]
-          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('\\n'.join(lines) + '\\n')
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('\n'.join(lines) + '\n')
           PY
 
       - name: Upload Android APK
