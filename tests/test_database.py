@@ -4,9 +4,12 @@ import sqlite3
 import tarfile
 import tempfile
 import unittest
+import io
+
+from PIL import Image
 from pathlib import Path
 
-from scripts.build_database import build_database, unpack_payload
+from scripts.build_database import build_database, optimize_png, unpack_payload
 from scripts.analyze_snapshot import inspect_archive
 
 
@@ -87,6 +90,18 @@ class SenseisDatabaseTests(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT path FROM aliases WHERE alias='tesuji.sgf'").fetchone()[0], "snapshot/files/tesuji.sgf")
             finally:
                 conn.close()
+
+    def test_png_is_quantized_and_scaled(self):
+        source = Image.new("RGB", (120, 80))
+        pixels = source.load()
+        for y in range(80):
+            for x in range(120):
+                pixels[x, y] = ((x * 7) % 256, (y * 9) % 256, ((x + y) * 5) % 256)
+        buffer = io.BytesIO()
+        source.save(buffer, format="PNG")
+        optimized = Image.open(io.BytesIO(optimize_png(buffer.getvalue())))
+        self.assertEqual(optimized.size, (90, 60))
+        self.assertLessEqual(len(optimized.getcolors(maxcolors=256) or []), 32)
 
     def test_archive_path_traversal_is_rejected(self):
         from scripts.build_database import safe_tar_path
