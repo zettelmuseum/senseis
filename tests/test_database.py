@@ -73,6 +73,12 @@ class SenseisDatabaseTests(unittest.TestCase):
                 ).fetchone()[0]
                 self.assertTrue(sgf.startswith(b"(;GM[1]"))
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0], 3)
+                columns = [row[1] for row in conn.execute("PRAGMA table_info(pages)")]
+                self.assertNotIn("search_text", columns)
+                matches = conn.execute(
+                    "SELECT path FROM pages_search WHERE pages_search MATCH ?", ('"Rules strategy"',)
+                ).fetchall()
+                self.assertIn(("snapshot/Go/Introduction.html",), matches)
                 self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             finally:
                 conn.close()
