@@ -1,0 +1,8 @@
+build/
+dist/
+app/build/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite
+*.apk
