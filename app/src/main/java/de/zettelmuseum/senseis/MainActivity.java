@@ -478,8 +478,9 @@ public class MainActivity extends Activity {
                 Cursor cursor = null;
                 try {
                     String pattern = "%" + query.replace("%", "\\%").replace("_", "\\_") + "%";
-                    cursor = database.rawQuery("SELECT path,title FROM pages WHERE title LIKE ? ESCAPE '\\' OR search_text LIKE ? ESCAPE '\\' ORDER BY CASE WHEN title LIKE ? THEN 0 ELSE 1 END, title COLLATE NOCASE LIMIT 100",
-                            new String[]{pattern, pattern, query + "%"});
+                    String ftsQuery = "\"" + query.replace("\"", "\"\"") + "\"";
+                    cursor = database.rawQuery("SELECT path,title FROM pages_search WHERE pages_search MATCH ? ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, title COLLATE NOCASE LIMIT 100",
+                            new String[]{ftsQuery, pattern});
                     while (cursor.moveToNext()) results.add(new String[]{cursor.getString(0), cursor.getString(1)});
                 } catch (Exception ignored) {
                 } finally { if (cursor != null) cursor.close(); }
@@ -550,10 +551,10 @@ public class MainActivity extends Activity {
                     input.close();
                     SQLiteDatabase test = SQLiteDatabase.openDatabase(temporary.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
                     Cursor check = test.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-                    boolean valid = check.moveToFirst() && "1".equals(check.getString(0));
+                    boolean valid = check.moveToFirst() && "2".equals(check.getString(0));
                     check.close();
-                    Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('files','pages','aliases')", null);
-                    valid = valid && tables.moveToFirst() && tables.getInt(0) == 3;
+                    Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('files','pages','aliases','pages_search')", null);
+                    valid = valid && tables.moveToFirst() && tables.getInt(0) == 4;
                     tables.close();
                     test.close();
                     if (!valid) throw new IllegalArgumentException("This file is not a compatible Sensei's Library database");
@@ -587,7 +588,7 @@ public class MainActivity extends Activity {
             database = SQLiteDatabase.openDatabase(databaseFile.getAbsolutePath(), null,
                     SQLiteDatabase.OPEN_READONLY | SQLiteDatabase.NO_LOCALIZED_COLLATORS);
             Cursor check = database.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-            boolean valid = check.moveToFirst() && "1".equals(check.getString(0));
+            boolean valid = check.moveToFirst() && "2".equals(check.getString(0));
             check.close();
             return valid;
         } catch (Exception e) {
