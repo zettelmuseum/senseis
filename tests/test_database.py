@@ -72,6 +72,27 @@ class SenseisDatabaseTests(unittest.TestCase):
             finally:
                 conn.close()
 
+    def test_aliases_fragments_and_sgf_alias(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = self.make_archive(root)
+            database = root / "senseis.db"
+            build_database(archive, database, progress_every=1000)
+            conn = sqlite3.connect(database)
+            try:
+                row = conn.execute("SELECT data,encoding FROM files WHERE path='snapshot/Go/Introduction.html'").fetchone()
+                page = unpack_payload(row[0], row[1]).decode("utf-8")
+                self.assertIn("/snapshot/index.html#top", page)
+                self.assertEqual(conn.execute("SELECT path FROM aliases WHERE alias='go.introduction'").fetchone()[0], "snapshot/Go/Introduction.html")
+                self.assertEqual(conn.execute("SELECT path FROM aliases WHERE alias='tesuji.sgf'").fetchone()[0], "snapshot/files/tesuji.sgf")
+            finally:
+                conn.close()
+
+    def test_archive_path_traversal_is_rejected(self):
+        from scripts.build_database import safe_tar_path
+        self.assertIsNone(safe_tar_path("../outside.html"))
+        self.assertIsNone(safe_tar_path("/absolute/file.html"))
+        self.assertEqual(safe_tar_path("snapshot/pages/one.html"), "snapshot/pages/one.html")
     def test_payload_compression_roundtrip(self):
         from scripts.build_database import store_payload
         original = b"Sensei library page text " * 200
