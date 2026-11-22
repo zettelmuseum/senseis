@@ -26,7 +26,7 @@ SNAPSHOT_URL = "https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2"
 WIKI_HOSTS = {"senseis.xmp.net", "www.senseis.xmp.net", "senseis.local"}
 HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_IMAGE_BYTES = 500 * 1024
 PNG_COLORS = 32
 PNG_SCALE = 0.75
@@ -262,13 +262,13 @@ def create_schema(conn: sqlite3.Connection) -> None:
       CREATE INDEX files_mime_idx ON files(mime);
       CREATE TABLE pages (
         path TEXT PRIMARY KEY REFERENCES files(path),
-        title TEXT NOT NULL,
-        search_text TEXT NOT NULL
+        title TEXT NOT NULL
       );
       CREATE INDEX pages_title_idx ON pages(title COLLATE NOCASE);
+      CREATE VIRTUAL TABLE pages_search USING fts4(path, title, search_text);
       CREATE TABLE aliases (alias TEXT PRIMARY KEY, path TEXT NOT NULL);
       CREATE INDEX aliases_path_idx ON aliases(path);
-      PRAGMA user_version=1;
+      PRAGMA user_version=2;
     """)
 
 
@@ -291,7 +291,9 @@ def write_home_page(conn: sqlite3.Connection, file_count: int, page_count: int) 
         ("__senseis_home__.html", "__senseis_home__.html", "text/html", len(content), hashlib.sha256(content).hexdigest(), "raw", content),
     )
     text_value = "Sensei's Library offline snapshot search browse library SGF files"
-    conn.execute("INSERT OR REPLACE INTO pages(path,title,search_text) VALUES(?,?,?)", ("__senseis_home__.html", "Sensei's Library — Offline", text_value))
+    conn.execute("INSERT OR REPLACE INTO pages(path,title) VALUES(?,?)", ("__senseis_home__.html", "Sensei's Library — Offline"))
+    conn.execute("INSERT INTO pages_search(path,title,search_text) VALUES(?,?,?)",
+                 ("__senseis_home__.html", "Sensei's Library — Offline", text_value))
     add_alias(conn, "home", "__senseis_home__.html")
     add_alias(conn, "index", "__senseis_home__.html")
     conn.execute("INSERT OR REPLACE INTO metadata(key,value) VALUES('start_path','__senseis_home__.html')")
@@ -373,7 +375,9 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             title = re.sub(r"\s+", " ", title).strip()[:300] or PurePosixPath(path).name
             body = soup.body or soup
             search_text = re.sub(r"\s+", " ", body.get_text(" ", strip=True)).strip()
-            conn.execute("INSERT OR REPLACE INTO pages(path,title,search_text) VALUES(?,?,?)", (path, title, search_text))
+            conn.execute("INSERT OR REPLACE INTO pages(path,title) VALUES(?,?)", (path, title))
+            conn.execute("INSERT INTO pages_search(path,title,search_text) VALUES(?,?,?)",
+                         (path, title, search_text))
             add_alias(conn, path, path)
             add_alias(conn, PurePosixPath(path).name, path)
             add_alias(conn, PurePosixPath(path).stem, path)
@@ -404,7 +408,10 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             stored, new_encoding = store_payload(rewritten, path)
             conn.execute("UPDATE files SET data=?,encoding=?,size=?,sha256=? WHERE path=?",
                          (sqlite3.Binary(stored), new_encoding, len(rewritten), hashlib.sha256(rewritten).hexdigest(), path))
-            conn.execute("UPDATE pages SET title=?,search_text=? WHERE path=?", (title, search_text, path))
+            conn.execute("UPDATE pages SET title=? WHERE path=?", (title, path))
+            conn.execute("DELETE FROM pages_search WHERE path=?", (path,))
+            conn.execute("INSERT INTO pages_search(path,title,search_text) VALUES(?,?,?)",
+                         (path, title, search_text))
             if index % progress_every == 0:
                 conn.commit()
                 print(f"Rewrote {index:,}/{len(html_paths):,} HTML pages", flush=True)
