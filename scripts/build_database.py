@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import html
 import json
 import mimetypes
@@ -19,12 +20,16 @@ from collections import Counter
 from pathlib import Path, PurePosixPath
 
 from bs4 import BeautifulSoup
+from PIL import Image
 
 SNAPSHOT_URL = "https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2"
 WIKI_HOSTS = {"senseis.xmp.net", "www.senseis.xmp.net", "senseis.local"}
 HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
 SCHEMA_VERSION = 1
+MAX_IMAGE_BYTES = 500 * 1024
+PNG_COLORS = 32
+PNG_SCALE = 0.75
 
 
 def safe_tar_path(name: str) -> str | None:
@@ -66,6 +71,20 @@ def store_payload(data: bytes, path: str) -> tuple[bytes, str]:
         if len(packed) + 16 < len(data):
             return packed, "deflate"
     return data, "raw"
+
+
+def optimize_png(data: bytes) -> bytes:
+    """Quantize PNGs to 32 colors and scale both dimensions to 75%."""
+    with Image.open(io.BytesIO(data)) as source:
+        image = source.convert("RGBA")
+        width = max(1, round(image.width * PNG_SCALE))
+        height = max(1, round(image.height * PNG_SCALE))
+        if image.size != (width, height):
+            image = image.resize((width, height), Image.Resampling.LANCZOS)
+        image = image.quantize(colors=PNG_COLORS, method=Image.Quantize.FASTOCTREE)
+        output = io.BytesIO()
+        image.save(output, format="PNG", optimize=True, compress_level=9)
+        return output.getvalue()
 
 
 def unpack_payload(data: bytes, encoding: str) -> bytes:
@@ -311,11 +330,25 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
                     data = source.read()
                 is_html = is_html_file(path, data)
                 mime = mime_for(path, is_html)
+                if mime.startswith("image/") and len(data) > MAX_IMAGE_BYTES:
+                    counters["images_removed"] += 1
+                    counters["image_bytes_removed"] += len(data)
+                    continue
+                original_size = len(data)
+                if mime == "image/png":
+                    try:
+                        optimized = optimize_png(data)
+                    except Exception as exc:
+                        print(f"WARNING: could not optimize PNG {path}: {exc}", flush=True)
+                    else:
+                        counters["png_bytes_saved"] += max(0, len(data) - len(optimized))
+                        counters["png_optimized"] += 1
+                        data = optimized
                 stored, encoding = store_payload(data, path)
                 name = PurePosixPath(path).name
-                conn.execute(insert_sql, (path, name, mime, len(data), hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
+                conn.execute(insert_sql, (path, name, mime, original_size, hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
                 counters["files"] += 1
-                counters["bytes_original"] += len(data)
+                counters["bytes_original"] += original_size
                 counters["html_files"] += int(is_html)
                 counters["sgf_files"] += int(path.lower().endswith(".sgf"))
                 if counters["files"] % progress_every == 0:
@@ -394,6 +427,10 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             "pages": page_count,
             "sgf_files": int(counters["sgf_files"]),
             "uncompressed_bytes": int(counters["bytes_original"]),
+            "images_removed": int(counters["images_removed"]),
+            "image_bytes_removed": int(counters["image_bytes_removed"]),
+            "png_optimized": int(counters["png_optimized"]),
+            "png_bytes_saved": int(counters["png_bytes_saved"]),
             "database_bytes": output.stat().st_size,
             "seconds": round(time.time() - started, 1),
         }
