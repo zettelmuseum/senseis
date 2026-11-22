@@ -57,7 +57,7 @@ jobs:
             }
             const message = "Deleted " + deleted + " artifacts from previous runs.";
             core.notice(message);
-            await core.summary.addHeading("Artifact cleanup").addText(message).write();
+            core.info(message);
 
       - name: Install lossy PNG optimizer
         run: |
