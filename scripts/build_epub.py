@@ -47,7 +47,7 @@ def slug(value: str, limit: int = 64) -> str:
 
 def key(value: str) -> str:
     value = urllib.parse.unquote_plus(value).replace("\\", "/").strip()
-    return re.sub(r"/+/", "/", value).strip("./").strip("/").casefold()
+    return re.sub(r"/+", "/", value).strip("./").strip("/").casefold()
 
 
 def extract_snapshot(archive: Path, root: Path) -> int:
