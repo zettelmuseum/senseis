@@ -438,7 +438,13 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         after_compaction_freelist_pages = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
         conn.close()
         os.replace(temporary, output)
+        storage_rows = conn.execute("SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name ORDER BY bytes DESC").fetchall()
+        table_storage = {name: int(size) for name, size in storage_rows}
+        payload_rows = conn.execute("SELECT encoding, COUNT(*), SUM(length(data)) FROM files GROUP BY encoding").fetchall()
+        payload_storage = {encoding: {"files": int(count), "stored_bytes": int(size or 0)} for encoding, count, size in payload_rows}
         result = {
+            "table_storage_bytes": table_storage,
+            "payload_storage": payload_storage,
             "members_seen": int(counters["members_seen"]),
             "files": file_count,
             "pages": page_count,
