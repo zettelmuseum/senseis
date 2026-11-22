@@ -343,9 +343,15 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
                     except Exception as exc:
                         print(f"WARNING: could not optimize PNG {path}: {exc}", flush=True)
                     else:
-                        counters["png_bytes_saved"] += max(0, len(data) - len(optimized))
-                        counters["png_optimized"] += 1
-                        data = optimized
+                        counters["png_bytes_before"] += len(data)
+                        if len(optimized) < len(data):
+                            counters["png_bytes_saved"] += len(data) - len(optimized)
+                            counters["png_bytes_after"] += len(optimized)
+                            counters["png_optimized"] += 1
+                            data = optimized
+                        else:
+                            counters["png_bytes_after"] += len(data)
+                            counters["png_not_smaller"] += 1
                 stored, encoding = store_payload(data, path)
                 name = PurePosixPath(path).name
                 conn.execute(insert_sql, (path, name, mime, original_size, hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
@@ -436,12 +442,13 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.execute("PRAGMA optimize")
         conn.commit()
         after_compaction_freelist_pages = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
-        conn.close()
-        os.replace(temporary, output)
+        # Collect storage diagnostics while the database connection is still open.
         storage_rows = conn.execute("SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name ORDER BY bytes DESC").fetchall()
         table_storage = {name: int(size) for name, size in storage_rows}
         payload_rows = conn.execute("SELECT encoding, COUNT(*), SUM(length(data)) FROM files GROUP BY encoding").fetchall()
         payload_storage = {encoding: {"files": int(count), "stored_bytes": int(size or 0)} for encoding, count, size in payload_rows}
+        conn.close()
+        os.replace(temporary, output)
         result = {
             "table_storage_bytes": table_storage,
             "payload_storage": payload_storage,
@@ -453,6 +460,9 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             "images_removed": int(counters["images_removed"]),
             "image_bytes_removed": int(counters["image_bytes_removed"]),
             "png_optimized": int(counters["png_optimized"]),
+            "png_bytes_before": int(counters["png_bytes_before"]),
+            "png_bytes_after": int(counters["png_bytes_after"]),
+            "png_not_smaller": int(counters["png_not_smaller"]),
             "png_bytes_saved": int(counters["png_bytes_saved"]),
             "database_bytes_before_compaction": before_compaction_bytes,
             "database_freelist_pages_before_compaction": before_compaction_freelist_pages,
