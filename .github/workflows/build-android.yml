@@ -106,7 +106,7 @@ jobs:
         env:
           ANDROID_API: '35'
           BUILD_TOOLS_VERSION: '35.0.0'
-        run: scripts/build_android.sh
+        run: bash scripts/build_android.sh
 
       - name: Write build summary
         run: |
