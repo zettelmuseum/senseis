@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import html
 import json
 import mimetypes
@@ -12,7 +11,10 @@ import os
 import posixpath
 import re
 import sqlite3
+import shutil
+import subprocess
 import tarfile
+import tempfile
 import time
 import urllib.parse
 import zlib
@@ -20,7 +22,6 @@ from collections import Counter
 from pathlib import Path, PurePosixPath
 
 from bs4 import BeautifulSoup
-from PIL import Image
 
 SNAPSHOT_URL = "https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2"
 WIKI_HOSTS = {"senseis.xmp.net", "www.senseis.xmp.net", "senseis.local"}
@@ -28,8 +29,10 @@ HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
 SCHEMA_VERSION = 3
 MAX_IMAGE_BYTES = 500 * 1024
-PNG_COLORS = 32
-PNG_SCALE = 0.75
+PNGQUANT_COLORS = 64
+PNGQUANT_QUALITY = "65-85"
+PNGQUANT_SPEED = 8
+PNGQUANT_BATCH_SIZE = 256
 
 
 def safe_tar_path(name: str) -> str | None:
@@ -73,18 +76,79 @@ def store_payload(data: bytes, path: str) -> tuple[bytes, str]:
     return data, "raw"
 
 
-def optimize_png(data: bytes) -> bytes:
-    """Quantize PNGs to 32 colors and scale both dimensions to 75%."""
-    with Image.open(io.BytesIO(data)) as source:
-        image = source.convert("RGBA")
-        width = max(1, round(image.width * PNG_SCALE))
-        height = max(1, round(image.height * PNG_SCALE))
-        if image.size != (width, height):
-            image = image.resize((width, height), Image.Resampling.LANCZOS)
-        image = image.quantize(colors=PNG_COLORS, method=Image.Quantize.FASTOCTREE)
-        output = io.BytesIO()
-        image.save(output, format="PNG", optimize=True, compress_level=9)
-        return output.getvalue()
+def optimize_pngs_with_pngquant(
+    conn: sqlite3.Connection,
+    records: list[tuple[str, Path, int]],
+    counters: Counter[str],
+) -> None:
+    """Lossily quantize staged PNGs in batches; keep each original unless smaller."""
+    if not records:
+        return
+    executable = shutil.which("pngquant")
+    if not executable:
+        raise RuntimeError("pngquant is required to optimize PNG images; install the pngquant command-line tool.")
+    version = subprocess.run(
+        [executable, "--version"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    counters["png_optimizer_version"] = version
+    counters["png_files_seen"] += len(records)
+    counters["png_bytes_before"] += sum(original_size for _, _, original_size in records)
+
+    for offset in range(0, len(records), PNGQUANT_BATCH_SIZE):
+        batch = records[offset:offset + PNGQUANT_BATCH_SIZE]
+        command = [
+            executable,
+            str(PNGQUANT_COLORS),
+            f"--quality={PNGQUANT_QUALITY}",
+            f"--speed={PNGQUANT_SPEED}",
+            "--ext", ".quant.png",
+            "--force",
+            "--skip-if-larger",
+            "--",
+            *(str(staged_path) for _, staged_path, _ in batch),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode not in (0, 98, 99):
+            counters["pngquant_batch_warnings"] += 1
+            detail = (completed.stderr or completed.stdout).strip()
+            print(
+                f"WARNING: pngquant batch {offset // PNGQUANT_BATCH_SIZE + 1} "
+                f"returned {completed.returncode}: {detail[:500]}",
+                flush=True,
+            )
+
+        for path, staged_path, original_size in batch:
+            optimized_path = staged_path.with_name(staged_path.stem + ".quant.png")
+            if optimized_path.is_file():
+                optimized = optimized_path.read_bytes()
+                optimized_path.unlink()
+            else:
+                optimized = b""
+
+            if optimized and len(optimized) < original_size:
+                conn.execute(
+                    "UPDATE files SET data=?,size=?,sha256=? WHERE path=?",
+                    (
+                        sqlite3.Binary(optimized),
+                        len(optimized),
+                        hashlib.sha256(optimized).hexdigest(),
+                        path,
+                    ),
+                )
+                counters["png_optimized"] += 1
+                counters["png_bytes_saved"] += original_size - len(optimized)
+                counters["png_bytes_after"] += len(optimized)
+            else:
+                counters["png_not_smaller"] += 1
+                counters["png_bytes_after"] += original_size
+        conn.commit()
+        completed_files = min(offset + len(batch), len(records))
+        if completed_files == len(records) or completed_files % 5000 == 0:
+            print(
+                f"pngquant processed {completed_files:,}/{len(records):,} PNG files; "
+                f"saved {counters['png_bytes_saved']:,} bytes so far",
+                flush=True,
+            )
 
 
 def unpack_payload(data: bytes, encoding: str) -> bytes:
@@ -306,6 +370,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
     temporary = output.with_suffix(output.suffix + ".part")
     if temporary.exists():
         temporary.unlink()
+    png_stage = Path(tempfile.mkdtemp(prefix="senseis-pngquant-", dir=output.parent))
+    png_records: list[tuple[str, Path, int]] = []
     conn = sqlite3.connect(str(temporary))
     started = time.time()
     counters: Counter[str] = Counter()
@@ -338,20 +404,9 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
                     continue
                 original_size = len(data)
                 if mime == "image/png":
-                    try:
-                        optimized = optimize_png(data)
-                    except Exception as exc:
-                        print(f"WARNING: could not optimize PNG {path}: {exc}", flush=True)
-                    else:
-                        counters["png_bytes_before"] += len(data)
-                        if len(optimized) < len(data):
-                            counters["png_bytes_saved"] += len(data) - len(optimized)
-                            counters["png_bytes_after"] += len(optimized)
-                            counters["png_optimized"] += 1
-                            data = optimized
-                        else:
-                            counters["png_bytes_after"] += len(data)
-                            counters["png_not_smaller"] += 1
+                    staged_path = png_stage / f"{len(png_records):08d}.png"
+                    staged_path.write_bytes(data)
+                    png_records.append((path, staged_path, original_size))
                 stored, encoding = store_payload(data, path)
                 name = PurePosixPath(path).name
                 conn.execute(insert_sql, (path, name, mime, original_size, hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
@@ -365,7 +420,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.commit()
         if counters["files"] == 0:
             raise RuntimeError("No regular files were found in the tar.bz2 archive.")
-        print(f"Import pass complete: {counters['files']:,} files; building page index", flush=True)
+        print(f"Import pass complete: {counters['files']:,} files; optimizing PNG images", flush=True)
+        optimize_pngs_with_pngquant(conn, png_records, counters)
 
         # Pass 2a: identify all HTML pages and create aliases before any links
         # are rewritten, so links to pages later in the tar stream also resolve.
@@ -480,6 +536,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         if temporary.exists():
             temporary.unlink()
         raise
+    finally:
+        shutil.rmtree(png_stage, ignore_errors=True)
 
 
 def main() -> None:

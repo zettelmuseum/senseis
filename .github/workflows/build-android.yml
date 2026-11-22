@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: senseis-offline-library
@@ -29,6 +30,40 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Delete artifacts from all previous workflow runs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
+            );
+            let deleted = 0;
+            for (let i = 0; i < artifacts.length; i += 10) {
+              const batch = artifacts.slice(i, i + 10);
+              await Promise.all(batch.map(async artifact => {
+                try {
+                  await github.rest.actions.deleteArtifact({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    artifact_id: artifact.id
+                  });
+                  deleted++;
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+              }));
+            }
+            const message = "Deleted " + deleted + " artifacts from previous runs.";
+            core.notice(message);
+            await core.summary.addHeading("Artifact cleanup").addText(message).write();
+
+      - name: Install lossy PNG optimizer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pngquant
+          pngquant --version
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -135,7 +170,7 @@ jobs:
               f"- Database size: {database['database_bytes']:,} bytes",
               f"- Database schema: {database.get('schema_version', 'unknown')}",
               f"- Images removed (>500 KiB): {database['images_removed']:,} ({database['image_bytes_removed']:,} source bytes)",
-              f"- PNGs quantized to 32 colors and scaled to 75%: {database['png_optimized']:,}; estimated bytes saved: {database['png_bytes_saved']:,}",
+              f"- PNGs compressed with {database.get('png_optimizer', 'pngquant')}: {database.get('png_optimized', 0):,}/{database.get('png_files_seen', 0):,}; bytes saved: {database.get('png_bytes_saved', 0):,}; unchanged: {database.get('png_not_smaller', 0):,}",
               f"- Database build time: {database['seconds']} seconds",
               f"- Android APK: {Path('app/build/SenseisLibrary.apk').stat().st_size:,} bytes",
               "",
