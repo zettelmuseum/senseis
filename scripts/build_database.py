@@ -426,6 +426,18 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.commit()
         conn.execute("PRAGMA optimize")
         conn.commit()
+
+        # FTS4 initially receives each page before HTML rewriting, then that
+        # row is replaced with the final text. Merge obsolete FTS segments and
+        # reclaim SQLite pages freed by the rewritten HTML BLOBs.
+        before_compaction_bytes = temporary.stat().st_size
+        before_compaction_freelist_pages = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
+        conn.execute("INSERT INTO pages_search(pages_search) VALUES('optimize')")
+        conn.commit()
+        conn.execute("VACUUM")
+        conn.execute("PRAGMA optimize")
+        conn.commit()
+        after_compaction_freelist_pages = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
         conn.close()
         os.replace(temporary, output)
         result = {
@@ -438,6 +450,9 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             "image_bytes_removed": int(counters["image_bytes_removed"]),
             "png_optimized": int(counters["png_optimized"]),
             "png_bytes_saved": int(counters["png_bytes_saved"]),
+            "database_bytes_before_compaction": before_compaction_bytes,
+            "database_freelist_pages_before_compaction": before_compaction_freelist_pages,
+            "database_freelist_pages_after_compaction": after_compaction_freelist_pages,
             "database_bytes": output.stat().st_size,
             "seconds": round(time.time() - started, 1),
         }
