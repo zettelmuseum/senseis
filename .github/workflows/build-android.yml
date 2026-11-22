@@ -2,6 +2,15 @@ name: Build Sensei's Library Android app and SQLite database
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'scripts/build_android.sh'
+      - 'scripts/build_database.py'
+      - 'scripts/analyze_snapshot.py'
+      - 'requirements.txt'
+      - '.github/workflows/build-android.yml'
 
 permissions:
   contents: read
@@ -16,7 +25,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
-      ANDROID_HOME: ${{ runner.temp }}/android-sdk
+      ANDROID_HOME: ${{ github.workspace }}/.android-sdk
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
