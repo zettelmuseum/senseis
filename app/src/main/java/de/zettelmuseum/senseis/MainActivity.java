@@ -486,7 +486,7 @@ public class MainActivity extends Activity {
                         fts.append("\"").append(term.replace("\"", "\"\"")).append("\"");
                     }
                     String ftsQuery = fts.toString();
-                    cursor = database.rawQuery("SELECT path,title FROM pages_search WHERE pages_search MATCH ? ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, title COLLATE NOCASE LIMIT 100",
+                    cursor = database.rawQuery("SELECT pages.path,pages.title FROM pages_search JOIN pages ON pages.rowid=pages_search.docid WHERE pages_search MATCH ? ORDER BY CASE WHEN pages.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, pages.title COLLATE NOCASE LIMIT 100",
                             new String[]{ftsQuery, pattern});
                     while (cursor.moveToNext()) results.add(new String[]{cursor.getString(0), cursor.getString(1)});
                 } catch (Exception ignored) {
@@ -558,7 +558,7 @@ public class MainActivity extends Activity {
                     input.close();
                     SQLiteDatabase test = SQLiteDatabase.openDatabase(temporary.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
                     Cursor check = test.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-                    boolean valid = check.moveToFirst() && "2".equals(check.getString(0));
+                    boolean valid = check.moveToFirst() && "3".equals(check.getString(0));
                     check.close();
                     Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('files','pages','aliases','pages_search')", null);
                     valid = valid && tables.moveToFirst() && tables.getInt(0) == 4;
