@@ -358,6 +358,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         # stylesheet, script, PDF and SGF attachments.
         for (path,) in conn.execute("SELECT path FROM files ORDER BY path"):
             add_alias(conn, path, path)
+            add_alias(conn, PurePosixPath(path).name, path)
+            add_alias(conn, PurePosixPath(path).stem, path)
         conn.commit()
 
         # Pass 2b: rewrite only same-wiki URLs. External URLs are left untouched;
