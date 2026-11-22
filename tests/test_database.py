@@ -14,7 +14,7 @@ from scripts.analyze_snapshot import inspect_archive
 
 
 class SenseisDatabaseTests(unittest.TestCase):
-    def make_archive(self, root: Path) -> Path:
+    def make_archive(self, root: Path, include_large_image: bool = False) -> Path:
         archive = root / "sample.tar.bz2"
         members = {
             "snapshot/index.html": b"""<!doctype html><html><head><title>Home</title><base href='https://senseis.xmp.net/'></head><body>
@@ -28,6 +28,8 @@ class SenseisDatabaseTests(unittest.TestCase):
             "snapshot/css/site.css": b"body { color: black; }" * 100,
             "snapshot/notes.txt": b"snapshot note",
         }
+        if include_large_image:
+            members["snapshot/images/large.jpg"] = b"\\xff\\xd8" + b"x" * (500 * 1024)
         with tarfile.open(archive, "w:bz2") as tar:
             for name, data in members.items():
                 info = tarfile.TarInfo(name)
@@ -88,6 +90,21 @@ class SenseisDatabaseTests(unittest.TestCase):
                 self.assertIn("/snapshot/index.html#top", page)
                 self.assertEqual(conn.execute("SELECT path FROM aliases WHERE alias='go.introduction'").fetchone()[0], "snapshot/Go/Introduction.html")
                 self.assertEqual(conn.execute("SELECT path FROM aliases WHERE alias='tesuji.sgf'").fetchone()[0], "snapshot/files/tesuji.sgf")
+            finally:
+                conn.close()
+
+    def test_images_larger_than_500_kib_are_removed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = self.make_archive(root, include_large_image=True)
+            database = root / "senseis.db"
+            result = build_database(archive, database, progress_every=1000)
+            self.assertEqual(result["images_removed"], 1)
+            conn = sqlite3.connect(database)
+            try:
+                self.assertIsNone(conn.execute(
+                    "SELECT path FROM files WHERE path='snapshot/images/large.jpg'"
+                ).fetchone())
             finally:
                 conn.close()
 
