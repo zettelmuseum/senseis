@@ -18,13 +18,35 @@ import zlib
 from collections import Counter
 from pathlib import Path, PurePosixPath
 
-from bs4 import BeautifulSoup
 
 SNAPSHOT_URL = "https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2"
 HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".md", ".csv", ".svg"}
 SCHEMA_VERSION = 6
 MAX_IMAGE_BYTES = 500 * 1024
+
+TITLE_RE = re.compile(rb"<title\\b[^>]*>(.*?)</title\\s*>", re.IGNORECASE | re.DOTALL)
+HEADING_RE = re.compile(rb"<h[12]\\b[^>]*>(.*?)</h[12]\\s*>", re.IGNORECASE | re.DOTALL)
+TAG_RE = re.compile(rb"<[^>]*>")
+CHARSET_RE = re.compile(rb"<meta[^>]+charset\\s*=\\s*[\"']?([a-zA-Z0-9._-]+)", re.IGNORECASE)
+
+
+def extract_page_title(raw: bytes, path: str, name: str) -> str:
+    """Extract a page title without constructing a full BeautifulSoup DOM."""
+    match = TITLE_RE.search(raw)
+    if match is None:
+        match = HEADING_RE.search(raw)
+    if match is None:
+        value = PurePosixPath(path).stem.replace("_", " ")
+    else:
+        charset = CHARSET_RE.search(raw[:8192])
+        encoding = charset.group(1).decode("ascii", errors="ignore") if charset else "utf-8"
+        try:
+            text = match.group(1).decode(encoding, errors="replace")
+        except LookupError:
+            text = match.group(1).decode("utf-8", errors="replace")
+        value = html.unescape(TAG_RE.sub(b" ", text.encode("utf-8", errors="replace")).decode("utf-8"))
+    return re.sub(r"\\s+", " ", value).strip()[:300] or name
 
 
 def safe_tar_path(name: str) -> str | None:
@@ -247,12 +269,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
         cursor = conn.execute("SELECT path,name,data,encoding FROM files WHERE is_html=1 ORDER BY path")
         for index, (path, name, packed, encoding) in enumerate(cursor, 1):
             raw = unpack_payload(packed, encoding)
-            soup = BeautifulSoup(raw, "html.parser")
-            title = soup.title.get_text(" ", strip=True) if soup.title else ""
-            if not title:
-                heading = soup.find(["h1", "h2"])
-                title = heading.get_text(" ", strip=True) if heading else PurePosixPath(path).stem.replace("_", " ")
-            title = re.sub(r"\s+", " ", title).strip()[:300] or name
+            title = extract_page_title(raw, path, name)
             page_batch.append((path, title))
             html_alias_batch.extend(alias_rows(path, name, title))
             if len(page_batch) >= 1000:
