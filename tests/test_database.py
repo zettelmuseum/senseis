@@ -168,7 +168,7 @@ class SenseisDatabaseTests(unittest.TestCase):
         self.assertEqual(result["png_files_seen"], 1)
         self.assertEqual(result["pngquant_converted"], 1)
         self.assertLess(len(optimized), len(png))
-        self.assertTrue(optimized.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertEqual(optimized[:8], bytes((137, 80, 78, 71, 13, 10, 26, 10)))
         self.assertEqual(mime, "image/png")
         self.assertNotIn(b"tEXt", optimized)
 
