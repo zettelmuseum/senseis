@@ -24,7 +24,7 @@ SNAPSHOT_URL = "https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2"
 WIKI_HOSTS = {"senseis.xmp.net", "www.senseis.xmp.net", "senseis.local"}
 HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MAX_IMAGE_BYTES = 500 * 1024
 
 
@@ -261,7 +261,7 @@ def paired_sgf_for_png(conn: sqlite3.Connection, png_path: str) -> str | None:
     return sgf_path if conn.execute("SELECT 1 FROM files WHERE path=?", (sgf_path,)).fetchone() else None
 
 
-def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes, str, str]:
+def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes, str]:
     soup = BeautifulSoup(raw, "html.parser")
     # A snapshot may contain a live-site <base> element. Removing it ensures
     # every relative resource and navigation target stays under the app origin.
@@ -336,9 +336,7 @@ def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes
     bridge.string = SGF_VIEWER_JS + "(function(){document.addEventListener('click',function(e){var n=e.target;while(n&&n.tagName!=='A')n=n.parentNode;if(!n||!n.hasAttribute('data-senseis-sgf'))return;e.preventDefault();if(window.SenseiBridge&&window.SenseiBridge.saveSgf)window.SenseiBridge.saveSgf(n.getAttribute('href'));},true);})();"
     (soup.body or soup.html).append(bridge)
 
-    body = soup.body or soup
-    search_text = re.sub(r"\s+", " ", body.get_text(" ", strip=True)).strip()
-    return str(soup).encode("utf-8"), title, search_text
+    return str(soup).encode("utf-8"), title
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
@@ -358,16 +356,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
         is_html INTEGER NOT NULL DEFAULT 0,
         data BLOB NOT NULL
       );
-      CREATE INDEX files_name_idx ON files(name COLLATE NOCASE);
-      CREATE INDEX files_mime_idx ON files(mime);
       CREATE TABLE pages (
         path TEXT PRIMARY KEY REFERENCES files(path),
         title TEXT NOT NULL
       );
-      CREATE INDEX pages_title_idx ON pages(title COLLATE NOCASE);
-      CREATE VIRTUAL TABLE pages_search USING fts4(search_text, content='');
       CREATE TABLE aliases (alias TEXT PRIMARY KEY, path TEXT NOT NULL);
-      CREATE INDEX aliases_path_idx ON aliases(path);
       PRAGMA user_version=3;
     """)
 
@@ -390,10 +383,7 @@ def write_home_page(conn: sqlite3.Connection, file_count: int, page_count: int) 
         "INSERT OR REPLACE INTO files(path,name,mime,size,sha256,encoding,is_html,data) VALUES(?,?,?,?,?,?,1,?)",
         ("__senseis_home__.html", "__senseis_home__.html", "text/html", len(content), hashlib.sha256(content).hexdigest(), "raw", content),
     )
-    text_value = "Sensei's Library offline snapshot search browse library SGF files"
     conn.execute("INSERT OR REPLACE INTO pages(path,title) VALUES(?,?)", ("__senseis_home__.html", "Sensei's Library — Offline"))
-    page_rowid = conn.execute("SELECT rowid FROM pages WHERE path=?", ("__senseis_home__.html",)).fetchone()[0]
-    conn.execute("INSERT INTO pages_search(rowid,search_text) VALUES(?,?)", (page_rowid, text_value))
     add_alias(conn, "home", "__senseis_home__.html")
     add_alias(conn, "index", "__senseis_home__.html")
     conn.execute("INSERT OR REPLACE INTO metadata(key,value) VALUES('start_path','__senseis_home__.html')")
@@ -464,12 +454,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
                 heading = soup.find(["h1", "h2"])
                 title = heading.get_text(" ", strip=True) if heading else PurePosixPath(path).stem.replace("_", " ")
             title = re.sub(r"\s+", " ", title).strip()[:300] or PurePosixPath(path).name
-            body = soup.body or soup
-            search_text = re.sub(r"\s+", " ", body.get_text(" ", strip=True)).strip()
             conn.execute("INSERT OR REPLACE INTO pages(path,title) VALUES(?,?)", (path, title))
-            # Contentless FTS stores only the inverted index; path/title live in pages.
-            page_rowid = conn.execute("SELECT rowid FROM pages WHERE path=?", (path,)).fetchone()[0]
-            conn.execute("INSERT INTO pages_search(rowid,search_text) VALUES(?,?)", (page_rowid, search_text))
             add_alias(conn, path, path)
             add_alias(conn, PurePosixPath(path).name, path)
             add_alias(conn, PurePosixPath(path).stem, path)
@@ -480,7 +465,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             add_alias(conn, title, path)
             if index % progress_every == 0:
                 conn.commit()
-                print(f"Indexed {index:,}/{len(html_paths):,} HTML pages", flush=True)
+                print(f"Registered {index:,}/{len(html_paths):,} HTML pages", flush=True)
         conn.commit()
 
         # Also map every stored file by its relative path; this includes image,
@@ -496,7 +481,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         for index, path in enumerate(html_paths, 1):
             packed, encoding = conn.execute("SELECT data,encoding FROM files WHERE path=?", (path,)).fetchone()
             raw = unpack_payload(packed, encoding)
-            rewritten, title, search_text = rewrite_html(conn, path, raw)
+            rewritten, title = rewrite_html(conn, path, raw)
             stored, new_encoding = store_payload(rewritten, path)
             conn.execute("UPDATE files SET data=?,encoding=?,size=?,sha256=? WHERE path=?",
                          (sqlite3.Binary(stored), new_encoding, len(rewritten), hashlib.sha256(rewritten).hexdigest(), path))
@@ -537,12 +522,9 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.execute("PRAGMA optimize")
         conn.commit()
 
-        # FTS4 initially receives each page before HTML rewriting, then that
-        # row is replaced with the final text. Merge obsolete FTS segments and
-        # reclaim SQLite pages freed by the rewritten HTML BLOBs.
+        # Reclaim SQLite pages freed by rewritten HTML and removed PNG payloads.
         before_compaction_bytes = temporary.stat().st_size
         before_compaction_freelist_pages = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
-        conn.execute("INSERT INTO pages_search(pages_search) VALUES('optimize')")
         conn.commit()
         conn.execute("VACUUM")
         conn.execute("PRAGMA optimize")
