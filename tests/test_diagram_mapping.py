@@ -39,8 +39,8 @@ class DiagramMappingTests(unittest.TestCase):
                 b"<html><body><img src='images/diagram.png'><img src='images/diagram.png'><a href='games/game.sgf'>SGF</a></body></html>",
             )
             report = analyze_archive(archive)
-        self.assertEqual(report["unique_one_to_one_pairs"], 0)
-        self.assertEqual(report["pngs_with_no_sgf_candidate"], 1)
+        self.assertEqual(report["strong_unique_one_to_one_pairs"], 0)
+        self.assertEqual(report["pngs_with_only_weak_same_page_evidence"], 1)
 
 
 if __name__ == "__main__":
