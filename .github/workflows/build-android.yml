@@ -1,4 +1,4 @@
-name: Build Sensei's Library Android app and SQLite database
+name: Build Sensei's Library Android app and compact archive
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
     paths:
       - 'app/**'
       - 'scripts/build_android.sh'
-      - 'scripts/build_database.py'
+      - 'scripts/build_library.py'
       - 'scripts/benchmark_sgf_compression.py'
       - 'scripts/analyze_snapshot.py'
       - 'requirements.txt'
@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   build:
-    name: Analyze snapshot, build SQLite database and APK
+    name: Analyze snapshot, build compact archive and APK
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
@@ -113,11 +113,11 @@ jobs:
             --limit 500 \
             --report build/sgf-compression.json
 
-      - name: Build complete SQLite library (batched database writes)
+      - name: Build compact binary library archive
         run: |
-          python scripts/build_database.py \
+          python scripts/build_library.py \
             --archive build/senseis-library.tar.bz2 \
-            --output dist/senseis.db \
+            --output dist/senseis.slb \
             --summary build/database-summary.json \
             --sgf-compression-report build/sgf-compression.json
 
@@ -170,9 +170,11 @@ jobs:
               "",
               f"- Snapshot archive: {Path('build/senseis-library.tar.bz2').stat().st_size:,} bytes",
               f"- Sample scan: {analysis['members_scanned']:,} archive members; {analysis['sampled_pages']:,} HTML pages extracted for analysis",
-              f"- SQLite database: {database['files']:,} files; {database['pages']:,} wiki pages; {database['sgf_files']:,} SGF files",
-              f"- Database size: {database['database_bytes']:,} bytes",
-              f"- Database schema: {database.get('schema_version', 'unknown')}",
+              f"- Binary archive: {database['files']:,} files; {database['pages']:,} wiki pages; {database['sgf_files']:,} SGF files",
+              f"- Archive size: {database['archive_bytes']:,} bytes",
+              f"- Compressed directory: {database['directory_compressed_bytes']:,} bytes ({database['directory_entries']:,} entries)",
+              "- Alias table: removed; aliases are resolved from file paths on demand",
+              f"- Archive format: {database['format']} v{database['format_version']}",
               f"- Images removed (>500 KiB): {database['images_removed']:,} ({database['image_bytes_removed']:,} source bytes)",
               f"- Diagram PNGs skipped before database insertion: {database['diagram_pngs_skipped']:,} ({database['diagram_png_bytes_skipped']:,} source bytes)",
               f"- SGF compression sample: {sgf['samples']} files; zlib-6 saves {sgf['zlib6_saving_percent']}%; {sgf['zlib6_mib_per_second']} MiB/s",
@@ -181,7 +183,7 @@ jobs:
               f"- Database build time: {database['seconds']} seconds",
               f"- Android APK: {Path('app/build/SenseisLibrary.apk').stat().st_size:,} bytes",
               "",
-              "Download both artifacts: install the APK, then open the app and import `senseis.db` using the Android file picker.",
+              "Download both artifacts: install the APK, then open the app and import `senseis.slb` using the Android file picker.",
           ]
           Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('\n'.join(lines) + '\n')
           PY
@@ -195,11 +197,11 @@ jobs:
           retention-days: 30
           compression-level: 0
 
-      - name: Upload complete offline SQLite database
+      - name: Upload compact offline archive
         uses: actions/upload-artifact@v4
         with:
-          name: senseis-offline-database
-          path: dist/senseis.db
+          name: senseis-offline-library
+          path: dist/senseis.slb
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
