@@ -147,9 +147,9 @@ public class MainActivity extends Activity {
     private void showBrowser() {
         removeBrowser();
         webView = new WebView(this); webView.setBackgroundColor(Color.WHITE);
-        WebSettings s = webView.getSettings(); s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true);
+        WebSettings s = webView.getSettings(); s.setJavaScriptEnabled(true); s.setDomStorageEnabled(false); s.setDatabaseEnabled(false); s.setCacheMode(WebSettings.LOAD_NO_CACHE); s.setSaveFormData(false);
         s.setAllowFileAccess(false); s.setAllowContentAccess(false); s.setSupportZoom(true);
-        s.setBuiltInZoomControls(true); s.setDisplayZoomControls(false); s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setBuiltInZoomControls(true); s.setDisplayZoomControls(false); s.setSupportMultipleWindows(false); s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         webView.addJavascriptInterface(new SaveBridge(), "SenseiBridge");
         webView.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) { return routeRequest(r.getUrl()); }
