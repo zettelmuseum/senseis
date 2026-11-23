@@ -137,9 +137,9 @@ class SenseisDatabaseTests(unittest.TestCase):
                 red, green, blue = palette[(state >> 27) & 31]
                 rows.extend((red, green, blue))
         png = (
-            b"\\x89PNG\\r\\n\\x1a\\n"
+            b"\x89PNG\r\n\x1a\n"
             + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-            + chunk(b"tEXt", b"Comment\\x00metadata to strip")
+            + chunk(b"tEXt", b"Comment\x00metadata to strip")
             + chunk(b"IDAT", zlib.compress(bytes(rows), 1))
             + chunk(b"IEND", b"")
         )
