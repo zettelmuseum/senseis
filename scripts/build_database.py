@@ -21,10 +21,9 @@ from pathlib import Path, PurePosixPath
 from bs4 import BeautifulSoup
 
 SNAPSHOT_URL = "https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2"
-WIKI_HOSTS = {"senseis.xmp.net", "www.senseis.xmp.net", "senseis.local"}
 HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_IMAGE_BYTES = 500 * 1024
 
 
@@ -95,250 +94,6 @@ def lookup_alias(conn: sqlite3.Connection, value: str) -> str | None:
     return row[0] if row else None
 
 
-def resolve_internal_target(conn: sqlite3.Connection, href: str, current_path: str) -> tuple[str | None, str, bool]:
-    """Resolve a snapshot URL to a stored archive path; return (path, fragment, same-site)."""
-    try:
-        parsed = urllib.parse.urlsplit(href)
-    except ValueError:
-        return None, "", False
-    host = (parsed.hostname or "").lower()
-    same_site = (not parsed.scheme and not parsed.netloc) or host in WIKI_HOSTS
-    if not same_site:
-        return None, parsed.fragment, False
-
-    # PmWiki-style links commonly use /?Group.Page or ?Group.Page.
-    query_candidates: list[str] = []
-    if parsed.query:
-        query_candidates.append(parsed.query)
-        for qkey, qvalue in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True):
-            if qvalue:
-                query_candidates.append(qvalue)
-            if qkey and qkey.lower() not in {"action", "n", "page", "title", "q", "query", "url"}:
-                query_candidates.append(qkey)
-    for candidate in query_candidates:
-        path = lookup_alias(conn, candidate)
-        if path:
-            return path, parsed.fragment, True
-
-    raw_path = urllib.parse.unquote(parsed.path or "")
-    if raw_path in {"", "/"}:
-        return None, parsed.fragment, True
-    raw_path = raw_path.replace("\\", "/")
-    candidates: list[str] = []
-    if raw_path.startswith("/"):
-        candidates.append(raw_path.lstrip("/"))
-    else:
-        candidates.append(posixpath.normpath(posixpath.join(posixpath.dirname(current_path), raw_path)))
-        candidates.append(raw_path)
-    for candidate in list(candidates):
-        normalized = posixpath.normpath(candidate).lstrip("./")
-        if normalized and not normalized.startswith("../"):
-            candidates.append(normalized)
-            if not PurePosixPath(normalized).suffix:
-                candidates.extend(normalized + ext for ext in (".html", ".htm", ".xhtml"))
-    for candidate in candidates:
-        candidate = candidate.lstrip("/")
-        row = conn.execute("SELECT path FROM files WHERE path = ?", (candidate,)).fetchone()
-        if row:
-            return row[0], parsed.fragment, True
-        alias = lookup_alias(conn, candidate)
-        if alias:
-            return alias, parsed.fragment, True
-        alias = lookup_alias(conn, PurePosixPath(candidate).name)
-        if alias:
-            return alias, parsed.fragment, True
-    return None, parsed.fragment, True
-
-
-def local_url(path: str, fragment: str = "") -> str:
-    encoded = "/" + urllib.parse.quote(path, safe="/!$&'()*+,;=:@-._~")
-    if fragment:
-        encoded += "#" + urllib.parse.quote(urllib.parse.unquote(fragment), safe="-._~:@!$&'()*+,;=/?")
-    return encoded
-
-
-SGF_VIEWER_JS = r"""
-(function(){
-function prop(n,k){return n.p[k]||[];}
-function parseSgf(s){
- var i=0;
- function skip(){while(i<s.length&&/\s/.test(s[i]))i++;}
- function value(){
-  i++;var out="";
-  while(i<s.length&&s[i]!=="]"){
-   if(s[i]==="\\"){i++;if(i<s.length){if(s[i]==="\r"){i++;if(s[i]==="\n")i++;}else if(s[i]!=="\n")out+=s[i++];else i++;}}
-   else out+=s[i++];
-  }
-  if(s[i]==="]")i++;return out;
- }
- function node(){
-  i++;var p={};skip();
-  while(i<s.length&&/[A-Z]/.test(s[i])){
-   var k="";while(i<s.length&&/[A-Z]/.test(s[i]))k+=s[i++];
-   var vals=[];skip();while(s[i]==="["){vals.push(value());skip();}
-   p[k]=vals;
-  }
-  return {p:p,children:[]};
- }
- function tree(){
-  skip();if(s[i]!=="(")return null;i++;skip();
-  var first=null,last=null;
-  while(i<s.length&&s[i]===";"){
-   var n=node();if(!first)first=n;if(last)last.children.push(n);last=n;skip();
-  }
-  while(i<s.length&&s[i]==="("){
-   var variation=tree();if(last&&variation)last.children.push(variation);skip();
-  }
-  if(s[i]===")")i++;
-  return first;
- }
- while(i<s.length&&s[i]!=="(")i++;
- var root=tree(),line=[],n=root;
- while(n){line.push(n);n=n.children.length?n.children[0]:null;}
- return line;
-}
-function coord(v,size){if(!v||v.length<2)return null;var x=v.charCodeAt(0)-97,y=v.charCodeAt(1)-97;if(x<0||y<0||x>=size||y>=size)return null;return [x,y];}
-function boardAt(line,upto,size){
- var b=new Array(size*size).fill(0);
- function group(x,y,color,seen){
-  var stack=[[x,y]],stones=[],libs=false;
-  while(stack.length){var q=stack.pop(),idx=q[1]*size+q[0];if(seen.has(idx))continue;seen.add(idx);stones.push(idx);
-   var dirs=[[1,0],[-1,0],[0,1],[0,-1]];
-   for(var d of dirs){var nx=q[0]+d[0],ny=q[1]+d[1];if(nx<0||ny<0||nx>=size||ny>=size)continue;var ni=ny*size+nx;if(!b[ni])libs=true;else if(b[ni]===color&&!seen.has(ni))stack.push([nx,ny]);}
-  }return {stones:stones,liberty:libs};
- }
- for(var z=0;z<=upto&&z<line.length;z++){
-  var p=line[z].p;
-  if(z===0&&p.SZ&&p.SZ[0]){var parsed=parseInt(p.SZ[0].split(":")[0],10);if(parsed>=2&&parsed<=25&&parsed!==size)return boardAt(line,upto,parsed);}
-  [["AB",1],["AW",2],["AE",0]].forEach(function(pair){(p[pair[0]]||[]).forEach(function(v){var c=coord(v,size);if(c)b[c[1]*size+c[0]]=pair[1];});});
-  var mv=p.B?["B",1]:p.W?["W",2]:null;
-  if(mv){var c=coord(p[mv[0]][0],size);if(c){var x=c[0],y=c[1],idx=y*size+x;b[idx]=mv[1];
-   var dirs=[[1,0],[-1,0],[0,1],[0,-1]],seen=new Set();
-   dirs.forEach(function(d){var nx=x+d[0],ny=y+d[1];if(nx<0||ny<0||nx>=size||ny>=size)return;var ni=ny*size+nx;if(b[ni]===3-mv[1]&&!seen.has(ni)){var g=group(nx,ny,3-mv[1],seen);if(!g.liberty)g.stones.forEach(function(k){b[k]=0;});}});
-  }}
- }
- return b;
-}
-function draw(canvas,line,index,size){
- var ratio=window.devicePixelRatio||1,w=420,margin=24,step=(w-2*margin)/(size-1);
- canvas.width=w*ratio;canvas.height=w*ratio;canvas.style.width="100%";canvas.style.height="auto";
- var c=canvas.getContext("2d");c.scale(ratio,ratio);c.fillStyle="#d9ad68";c.fillRect(0,0,w,w);
- c.strokeStyle="#342719";c.lineWidth=1;
- for(var j=0;j<size;j++){var p=margin+j*step;c.beginPath();c.moveTo(margin,p);c.lineTo(w-margin,p);c.stroke();c.beginPath();c.moveTo(p,margin);c.lineTo(p,w-margin);c.stroke();}
- if(size===19){[3,9,15].forEach(function(y){[3,9,15].forEach(function(x){c.beginPath();c.arc(margin+x*step,margin+y*step,2.7,0,Math.PI*2);c.fillStyle="#342719";c.fill();});});}
- var b=boardAt(line,index,size);
- for(var y=0;y<size;y++)for(var x=0;x<size;x++){var v=b[y*size+x];if(!v)continue;var px=margin+x*step,py=margin+y*step,r=step*.46;
-  c.beginPath();c.arc(px,py,r,0,Math.PI*2);c.fillStyle=v===1?"#111":"#f8f8f5";c.fill();c.strokeStyle="#222";c.lineWidth=1;c.stroke();
- }
- var last=line[index],m=last&&(last.p.B||last.p.W);if(m&&m[0]){var q=coord(m[0],size);if(q){c.beginPath();c.arc(margin+q[0]*step,margin+q[1]*step,step*.17,0,Math.PI*2);c.strokeStyle=m===last.p.B?"#fff":"#111";c.lineWidth=2;c.stroke();}}
-}
-function init(el){
- var path=el.getAttribute("data-sgf");
- el.innerHTML="<div class='sgfv-board'><canvas></canvas></div><div class='sgfv-controls'><button type='button' class='sgfv-prev'>‹</button><span class='sgfv-count'></span><button type='button' class='sgfv-next'>›</button></div>";
- var canvas=el.querySelector("canvas"),count=el.querySelector(".sgfv-count"),prev=el.querySelector(".sgfv-prev"),next=el.querySelector(".sgfv-next");
- fetch(path).then(function(r){if(!r.ok)throw new Error("SGF unavailable");return r.text();}).then(function(s){
-  var line=parseSgf(s);if(!line.length)throw new Error("Empty SGF");
-  var size=19;if(line[0].p.SZ&&line[0].p.SZ[0])size=parseInt(line[0].p.SZ[0].split(":")[0],10)||19;
-  var index=line.length-1;
-  function render(){draw(canvas,line,index,size);count.textContent=(index+1)+" / "+line.length;prev.disabled=index===0;next.disabled=index===line.length-1;}
-  prev.addEventListener("click",function(){if(index>0){index--;render();}});
-  next.addEventListener("click",function(){if(index<line.length-1){index++;render();}});
-  render();
- }).catch(function(){el.textContent="SGF diagram unavailable";});
-}
-document.querySelectorAll(".senseis-sgf-viewer").forEach(init);
-})();
-"""
-
-def paired_sgf_for_png(conn: sqlite3.Connection, png_path: str) -> str | None:
-    if not png_path.lower().endswith(".png"):
-        return None
-    name = PurePosixPath(png_path).name
-    code = name[:-4]
-    if len(code) != 32 or not re.fullmatch(r"[0-9a-fA-F]{32}", code):
-        return None
-    sgf_path = png_path[:-4] + ".sgf"
-    return sgf_path if conn.execute("SELECT 1 FROM files WHERE path=?", (sgf_path,)).fetchone() else None
-
-
-def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes, str]:
-    soup = BeautifulSoup(raw, "html.parser")
-    # A snapshot may contain a live-site <base> element. Removing it ensures
-    # every relative resource and navigation target stays under the app origin.
-    for base in soup.find_all("base"):
-        base.decompose()
-    title = soup.title.get_text(" ", strip=True) if soup.title else ""
-    if not title:
-        heading = soup.find(["h1", "h2"])
-        title = heading.get_text(" ", strip=True) if heading else PurePosixPath(path).stem.replace("_", " ")
-    title = re.sub(r"\s+", " ", title).strip()[:300] or PurePosixPath(path).name
-
-    for tag in soup.find_all(href=True):
-        href = str(tag.get("href", "")).strip()
-        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:", "data:", "blob:")):
-            continue
-        target, fragment, same_site = resolve_internal_target(conn, href, path)
-        if target:
-            sgf_path = paired_sgf_for_png(conn, target)
-            if sgf_path:
-                tag.attrs.pop("href", None)
-                tag["title"] = "SGF diagram"
-            else:
-                tag["href"] = local_url(target, fragment)
-        elif same_site:
-            parsed = urllib.parse.urlsplit(href)
-            # Keep an unresolved internal wiki reference local. The app renders a
-            # useful offline "not included in this snapshot" page instead of sending
-            # the reader to the live site.
-            if parsed.query:
-                tag["href"] = "/?" + parsed.query + (("#" + parsed.fragment) if parsed.fragment else "")
-            elif parsed.path:
-                tag["href"] = local_url(parsed.path.lstrip("/"), parsed.fragment)
-
-    for tag in list(soup.find_all(src=True)):
-        src = str(tag.get("src", "")).strip()
-        if not src or src.startswith(("data:", "blob:", "javascript:")):
-            continue
-        target, fragment, same_site = resolve_internal_target(conn, src, path)
-        if target:
-            sgf_path = paired_sgf_for_png(conn, target)
-            if sgf_path:
-                viewer = soup.new_tag("div")
-                viewer["class"] = "senseis-sgf-viewer"
-                viewer["data-sgf"] = local_url(sgf_path)
-                viewer["aria-label"] = str(tag.get("alt", "Go diagram"))
-                tag.replace_with(viewer)
-            else:
-                tag["src"] = local_url(target, fragment)
-
-    for tag in soup.find_all("a", href=True):
-        target, _, _ = resolve_internal_target(conn, str(tag.get("href", "")), path)
-        destination = target or ""
-        if str(tag.get("href", "")).lower().split("#", 1)[0].split("?", 1)[0].lower().endswith(".sgf") or destination.lower().endswith(".sgf"):
-            tag["data-senseis-sgf"] = "1"
-            tag["download"] = PurePosixPath(destination or urllib.parse.urlsplit(str(tag.get("href", ""))).path).name or "game.sgf"
-            tag["title"] = "Save SGF file"
-
-    if soup.html is None:
-        wrapped = BeautifulSoup("<!doctype html><html><head></head><body></body></html>", "html.parser")
-        for node in list(soup.contents):
-            wrapped.body.append(node)
-        soup = wrapped
-    if soup.head is None:
-        soup.html.insert(0, soup.new_tag("head"))
-    if not soup.head.find("meta", attrs={"name": "viewport"}):
-        viewport = soup.new_tag("meta", attrs={"name": "viewport", "content": "width=device-width, initial-scale=1"})
-        soup.head.append(viewport)
-    style = soup.new_tag("style")
-    style.string = "body{max-width:100%;margin:0 auto;padding:12px;line-height:1.45;overflow-wrap:anywhere}img,video,svg{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse;display:block;overflow-x:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{overflow-wrap:anywhere}.senseis-sgf-viewer{max-width:420px;margin:12px auto;background:#d9ad68;padding:4px;border:1px solid #80613c}.sgfv-controls{display:flex;align-items:center;justify-content:center;gap:20px;padding:5px;background:#eee}.sgfv-controls button{min-width:42px;min-height:36px;font-size:22px}.sgfv-controls span{font:13px sans-serif}"
-    soup.head.append(style)
-    bridge = soup.new_tag("script")
-    bridge.string = SGF_VIEWER_JS + "(function(){document.addEventListener('click',function(e){var n=e.target;while(n&&n.tagName!=='A')n=n.parentNode;if(!n||!n.hasAttribute('data-senseis-sgf'))return;e.preventDefault();if(window.SenseiBridge&&window.SenseiBridge.saveSgf)window.SenseiBridge.saveSgf(n.getAttribute('href'));},true);})();"
-    (soup.body or soup.html).append(bridge)
-
-    return str(soup).encode("utf-8"), title
-
-
 def create_schema(conn: sqlite3.Connection) -> None:
     conn.executescript("""
       PRAGMA page_size=4096;
@@ -361,7 +116,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         title TEXT NOT NULL
       );
       CREATE TABLE aliases (alias TEXT PRIMARY KEY, path TEXT NOT NULL);
-      PRAGMA user_version=3;
+      PRAGMA user_version=5;
     """)
 
 
@@ -440,10 +195,9 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.commit()
         if counters["files"] == 0:
             raise RuntimeError("No regular files were found in the tar.bz2 archive.")
-        print(f"Import pass complete: {counters['files']:,} files; PNG images retained unchanged pending SGF mapping analysis", flush=True)
+        print(f"Import pass complete: {counters['files']:,} files", flush=True)
 
-        # Pass 2a: identify all HTML pages and create aliases before any links
-        # are rewritten, so links to pages later in the tar stream also resolve.
+        # Pass 2: register HTML titles and aliases; page HTML remains byte-for-byte unchanged.
         html_paths = [row[0] for row in conn.execute("SELECT path FROM files WHERE is_html=1 ORDER BY path")]
         for index, path in enumerate(html_paths, 1):
             packed, encoding = conn.execute("SELECT data,encoding FROM files WHERE path=?", (path,)).fetchone()
@@ -476,24 +230,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             add_alias(conn, PurePosixPath(path).stem, path)
         conn.commit()
 
-        # Pass 2b: rewrite only same-wiki URLs. External URLs are left untouched;
-        # the Android application itself blocks all network traffic.
-        for index, path in enumerate(html_paths, 1):
-            packed, encoding = conn.execute("SELECT data,encoding FROM files WHERE path=?", (path,)).fetchone()
-            raw = unpack_payload(packed, encoding)
-            rewritten, title = rewrite_html(conn, path, raw)
-            stored, new_encoding = store_payload(rewritten, path)
-            conn.execute("UPDATE files SET data=?,encoding=?,size=?,sha256=? WHERE path=?",
-                         (sqlite3.Binary(stored), new_encoding, len(rewritten), hashlib.sha256(rewritten).hexdigest(), path))
-            conn.execute("UPDATE pages SET title=? WHERE path=?", (title, path))
-            if index % progress_every == 0:
-                conn.commit()
-                print(f"Rewrote {index:,}/{len(html_paths):,} HTML pages", flush=True)
-        conn.commit()
-
-        # The snapshot uses identical 32-hex basenames for each diagram PNG and
-        # its SGF source. HTML has already been rewritten to render the SGF, so
-        # remove the redundant PNG payloads and their aliases from the database.
+        # The app dynamically renders matching SGF files in place of these PNGs,
+        # so remove the redundant diagram PNG payloads and their aliases.
         diagram_png_rows = conn.execute("""
             SELECT p.path, p.size
             FROM files AS p
@@ -522,7 +260,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.execute("PRAGMA optimize")
         conn.commit()
 
-        # Reclaim SQLite pages freed by rewritten HTML and removed PNG payloads.
+        # Reclaim SQLite pages freed by removed PNG payloads.
         before_compaction_bytes = temporary.stat().st_size
         before_compaction_freelist_pages = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
         conn.commit()
