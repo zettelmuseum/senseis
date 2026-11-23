@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'app/**'
+      - 'tests/java/**'
       - 'scripts/build_android.sh'
       - 'scripts/build_library.py'
       - 'scripts/benchmark_sgf_compression.py'
