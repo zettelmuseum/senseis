@@ -644,7 +644,7 @@ public class MainActivity extends Activity {
                     input.close();
                     SQLiteDatabase test = SQLiteDatabase.openDatabase(temporary.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
                     Cursor check = test.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-                    boolean valid = check.moveToFirst() && "5".equals(check.getString(0));
+                    boolean valid = check.moveToFirst() && "6".equals(check.getString(0));
                     check.close();
                     Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('files','pages','aliases')", null);
                     valid = valid && tables.moveToFirst() && tables.getInt(0) == 4;
@@ -681,7 +681,7 @@ public class MainActivity extends Activity {
             database = SQLiteDatabase.openDatabase(databaseFile.getAbsolutePath(), null,
                     SQLiteDatabase.OPEN_READONLY | SQLiteDatabase.NO_LOCALIZED_COLLATORS);
             Cursor check = database.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-            boolean valid = check.moveToFirst() && "5".equals(check.getString(0));
+            boolean valid = check.moveToFirst() && "6".equals(check.getString(0));
             check.close();
             return valid;
         } catch (Exception e) {
