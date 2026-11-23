@@ -51,7 +51,7 @@ def mime_for(path: str) -> str:
     return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
-def build_database(archive: Path, output: Path, sgf_compression_report: Path | None = None) -> dict:
+def build_archive(archive: Path, output: Path, sgf_compression_report: Path | None = None) -> dict:
     if not archive.is_file() or not archive.stat().st_size:
         raise RuntimeError(f"Snapshot archive missing: {archive}")
     compress_sgf = bool(json.loads(sgf_compression_report.read_text("utf-8")).get("recommended", False)) if sgf_compression_report and sgf_compression_report.is_file() else False
@@ -185,7 +185,7 @@ def main() -> None:
     parser.add_argument("--summary", type=Path)
     parser.add_argument("--sgf-compression-report", type=Path)
     args = parser.parse_args()
-    result = build_database(args.archive, args.output, args.sgf_compression_report)
+    result = build_archive(args.archive, args.output, args.sgf_compression_report)
     if args.summary:
         args.summary.parent.mkdir(parents=True, exist_ok=True)
         args.summary.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
