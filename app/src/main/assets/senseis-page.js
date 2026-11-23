@@ -3,6 +3,7 @@
 var LOCAL="https://senseis.local/";
 function localUrl(raw,base){
  try{
+  if(raw.charAt(0)==="?")return LOCAL+raw;
   var u=new URL(raw,base||document.baseURI);
   if(!/^(senseis\.xmp\.net|www\.senseis\.xmp\.net|senseis\.local)$/i.test(u.hostname))return null;
   u.protocol="https:";u.hostname="senseis.local";u.port="";
@@ -87,6 +88,7 @@ function enhance(){
   if(!raw||/^(#|mailto:|tel:|javascript:|data:|blob:)/i.test(raw))return;
   var mapped=localUrl(raw);if(mapped)el.setAttribute(attr,mapped);
  });
+ document.querySelectorAll("base").forEach(function(b){b.remove();});
  document.querySelectorAll("img[src]").forEach(function(img){
   var raw=img.getAttribute("src"),u;try{u=new URL(raw,document.baseURI);}catch(e){return;}
   if(!/\/[0-9a-f]{32}\.png$/i.test(u.pathname))return;
