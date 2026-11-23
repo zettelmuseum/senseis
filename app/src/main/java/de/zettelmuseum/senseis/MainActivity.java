@@ -68,6 +68,8 @@ public class MainActivity extends Activity {
     private TextView status;
     private ProgressBar progress;
     private String pendingSgfPath;
+    private volatile boolean darkMode;
+    private Button themeButton;
 
     private static final class Entry {
         final String path;
@@ -84,6 +86,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        darkMode = getPreferences(MODE_PRIVATE).getBoolean("dark_mode", false);
         archiveFile = new File(getFilesDir(), "senseis.slb");
         buildShell();
         if (archiveFile.isFile() && openArchive()) showBrowser(); else showImportScreen();
@@ -104,6 +107,7 @@ public class MainActivity extends Activity {
         addToolButton(toolbar, "Forward", new View.OnClickListener() { @Override public void onClick(View v) { if (webView != null && webView.canGoForward()) webView.goForward(); } });
         addToolButton(toolbar, "Search", new View.OnClickListener() { @Override public void onClick(View v) { showSearchDialog(); } });
         addToolButton(toolbar, "File", new View.OnClickListener() { @Override public void onClick(View v) { chooseArchive(); } });
+        themeButton = addToolButton(toolbar, darkMode ? "Light" : "Dark", new View.OnClickListener() { @Override public void onClick(View v) { toggleDarkMode(); } });
         status = new TextView(this);
         status.setTextColor(Color.DKGRAY); status.setTextSize(12); status.setPadding(dp(10), dp(2), dp(10), dp(2));
         status.setSingleLine(true); status.setVisibility(View.GONE);
@@ -113,10 +117,21 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
-    private void addToolButton(LinearLayout bar, String label, View.OnClickListener listener) {
+    private Button addToolButton(LinearLayout bar, String label, View.OnClickListener listener) {
         Button b = new Button(this); b.setText(label); b.setTextSize(12); b.setAllCaps(false);
         b.setMinHeight(dp(38)); b.setMinimumHeight(dp(38)); b.setPadding(dp(5), 0, dp(5), 0); b.setOnClickListener(listener);
         bar.addView(b, new LinearLayout.LayoutParams(0, -1, 1f));
+        return b;
+    }
+
+    private void toggleDarkMode() {
+        darkMode = !darkMode;
+        getPreferences(MODE_PRIVATE).edit().putBoolean("dark_mode", darkMode).apply();
+        if (themeButton != null) themeButton.setText(darkMode ? "Light" : "Dark");
+        if (webView != null) {
+            String value = darkMode ? "1" : "0";
+            webView.evaluateJavascript("document.documentElement.setAttribute('data-senseis-dark','" + value + "')", null);
+        }
     }
 
     private void showImportScreen() {
@@ -220,7 +235,7 @@ public class MainActivity extends Activity {
                 byte[] unpacked = readFully(body);
                 body.close();
                 String html = new String(unpacked, "UTF-8");
-                String prepared = SgfHtmlPreprocessor.prepare(html, BASE_URL + "__app/senseis-page.js");
+                String prepared = SgfHtmlPreprocessor.prepare(html, BASE_URL + "__app/senseis-page.js", darkMode);
                 body = new ByteArrayInputStream(prepared.getBytes("UTF-8"));
             }
             return new WebResourceResponse(mime, charset, 200, "OK", headers, body);
