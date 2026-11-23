@@ -80,6 +80,27 @@ def alias_key(value: str) -> str:
     return value.casefold()
 
 
+def alias_rows(path: str, name: str, title: str | None = None) -> list[tuple[str, str]]:
+    values = [path, name, PurePosixPath(name).stem]
+    if title is not None:
+        values.extend([
+            PurePosixPath(path).stem,
+            PurePosixPath(path).with_suffix("").as_posix().replace("/", "."),
+        ])
+        parts = PurePosixPath(path).with_suffix("").parts
+        if len(parts) >= 2:
+            values.append(".".join(parts[-2:]))
+        values.append(title)
+    result = []
+    seen = set()
+    for value in values:
+        key = alias_key(value)
+        if key and key not in seen:
+            seen.add(key)
+            result.append((key, path))
+    return result
+
+
 def add_alias(conn: sqlite3.Connection, alias: str, path: str) -> None:
     key = alias_key(alias)
     if key:
@@ -116,7 +137,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         title TEXT NOT NULL
       );
       CREATE TABLE aliases (alias TEXT PRIMARY KEY, path TEXT NOT NULL);
-      PRAGMA user_version=5;
+      PRAGMA user_version=6;
     """)
 
 
