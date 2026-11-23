@@ -28,6 +28,7 @@ class SenseisDatabaseTests(unittest.TestCase):
             "snapshot/files/tesuji.sgf": b"(;GM[1]FF[4]SZ[19];B[pd];W[dd])",
             "snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.sgf": b"(;GM[1]FF[4]SZ[19];B[pd];W[dd])",
             "snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.png": b"\\x89PNG\\r\\n\\x1a\\n" + b"x" * 60,
+            "snapshot/images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png": b"\\x89PNG\\r\\n\\x1a\\n" + b"unmatched diagram",
             "snapshot/images/stone.png": b"\x89PNG\r\n\x1a\n" + b"x" * 60,
             "snapshot/css/site.css": b"body { color: black; }" * 100,
             "snapshot/notes.txt": b"snapshot note",
@@ -61,7 +62,8 @@ class SenseisDatabaseTests(unittest.TestCase):
             result = build_database(archive, database, progress_every=1000)
             self.assertGreaterEqual(result["files"], 6)
             self.assertEqual(result["sgf_files"], 2)
-            self.assertEqual(result["diagram_pngs_removed"], 1)
+            self.assertEqual(result["diagram_pngs_skipped"], 2)
+            self.assertGreater(result["diagram_png_bytes_skipped"], 0)
             conn = sqlite3.connect(database)
             try:
                 home = conn.execute("SELECT value FROM metadata WHERE key='start_path'").fetchone()[0]
@@ -75,6 +77,7 @@ class SenseisDatabaseTests(unittest.TestCase):
                 self.assertNotIn("senseis-sgf-viewer", html)
                 self.assertNotIn("data-senseis-sgf", html)
                 self.assertIsNone(conn.execute("SELECT path FROM files WHERE path='snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.png'").fetchone())
+                self.assertIsNone(conn.execute("SELECT path FROM files WHERE path='snapshot/images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png'").fetchone())
                 self.assertIsNotNone(conn.execute("SELECT path FROM files WHERE path='snapshot/images/stone.png'").fetchone())
                 self.assertIn("<base href='https://senseis.xmp.net/'", html.lower())
                 sgf = conn.execute(
@@ -126,6 +129,15 @@ class SenseisDatabaseTests(unittest.TestCase):
         self.assertIsNone(safe_tar_path("../outside.html"))
         self.assertIsNone(safe_tar_path("/absolute/file.html"))
         self.assertEqual(safe_tar_path("snapshot/pages/one.html"), "snapshot/pages/one.html")
+    def test_sgf_compression_is_opt_in(self):
+        from scripts.build_database import store_payload
+        original = b"(;GM[1]FF[4]SZ[19];B[pd];W[dd])" * 100
+        raw, raw_encoding = store_payload(original, "large.sgf")
+        packed, packed_encoding = store_payload(original, "large.sgf", compress_sgf=True)
+        self.assertEqual(raw_encoding, "raw")
+        self.assertEqual(packed_encoding, "deflate")
+        self.assertEqual(unpack_payload(packed, packed_encoding), original)
+
     def test_payload_compression_roundtrip(self):
         from scripts.build_database import store_payload
         original = b"Sensei library page text " * 200
