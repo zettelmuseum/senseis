@@ -33,6 +33,19 @@ public final class SgfHtmlPreprocessorTest {
         check(prepared.contains("senseis-page.js"),
                 "The local page script was not injected into the HTML response");
 
+        String dark = SgfHtmlPreprocessor.prepare(
+                "<html><head></head><body><p>Dark test</p></body></html>",
+                "https://senseis.local/__app/senseis-page.js", true);
+        check(dark.contains("<html data-senseis-dark=\\"1\\">"),
+                "Dark mode must be enabled before WebView parses the page");
+        check(dark.contains("senseis-theme-style") && dark.contains("background:#17191c"),
+                "Dark mode stylesheet is missing");
+        String light = SgfHtmlPreprocessor.prepare(
+                "<html><head></head><body>Light test</body></html>",
+                "https://senseis.local/__app/senseis-page.js", false);
+        check(!light.contains("data-senseis-dark=\\"1\\""),
+                "Light mode must remain the default");
+
         String twice = SgfHtmlPreprocessor.prepare(
                 prepared, "https://senseis.local/__app/senseis-page.js");
         check(count(twice, "class=\"senseis-sgf-placeholder\"") == 1,
