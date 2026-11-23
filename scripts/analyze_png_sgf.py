@@ -37,7 +37,7 @@ def looks_html(path: str, prefix: bytes) -> bool:
     )
 
 
-def resolve_local(raw_url: str, page_path: str, known_paths: set[str]) -> str | None:
+def resolve_local(raw_url: str, page_path: str, known_paths: set[str], casefold_paths: dict[str, list[str]]) -> str | None:
     try:
         parsed = urllib.parse.urlsplit(html.unescape(raw_url.strip()))
     except ValueError:
@@ -58,8 +58,7 @@ def resolve_local(raw_url: str, page_path: str, known_paths: set[str]) -> str | 
         if normalized and normalized in known_paths:
             return normalized
         if normalized:
-            folded = normalized.casefold()
-            matches = [path for path in known_paths if path.casefold() == folded]
+            matches = casefold_paths.get(normalized.casefold(), [])
             if len(matches) == 1:
                 return matches[0]
     return None
@@ -108,6 +107,9 @@ def analyze_archive(archive: Path, report_path: Path | None = None) -> dict:
                         embedded_pairs.append((str(image_src), href))
             page_references.append((path, image_urls, sgf_urls, embedded_pairs))
 
+    casefold_paths: dict[str, list[str]] = defaultdict(list)
+    for path in paths:
+        casefold_paths[path.casefold()].append(path)
     png_paths = {path for path in paths if path.lower().endswith(".png")}
     sgf_paths = {path for path in paths if path.lower().endswith(".sgf")}
     strong_candidates: dict[str, set[str]] = defaultdict(set)
@@ -132,7 +134,7 @@ def analyze_archive(archive: Path, report_path: Path | None = None) -> dict:
         page_pngs = set()
         page_sgfs = set()
         for raw in image_urls:
-            resolved = resolve_local(raw, page_path, paths)
+            resolved = resolve_local(raw, page_path, paths, casefold_paths)
             if resolved in png_paths:
                 page_pngs.add(resolved)
                 png_references[resolved] += 1
@@ -143,8 +145,8 @@ def analyze_archive(archive: Path, report_path: Path | None = None) -> dict:
                 sgf_references[resolved] += 1
         # Strong structural evidence: the diagram image itself is wrapped in a link to the SGF.
         for image_url, sgf_url in embedded_pairs:
-            png = resolve_local(image_url, page_path, paths)
-            sgf = resolve_local(sgf_url, page_path, paths)
+            png = resolve_local(image_url, page_path, paths, casefold_paths)
+            sgf = resolve_local(sgf_url, page_path, paths, casefold_paths)
             if png in png_paths and sgf in sgf_paths:
                 strong_candidates[png].add(sgf)
                 strong_reasons[(png, sgf)].add("image_wrapped_by_sgf_link")
