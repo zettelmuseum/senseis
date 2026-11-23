@@ -20,18 +20,18 @@ final class SgfHtmlPreprocessor {
     private static final Pattern END_HEAD = Pattern.compile("(?i)</head\\s*>");
     private static final String THEME_STYLE =
             "<style id=\"senseis-theme-style\">" +
-            "html[data-senseis-dark=\"1\"]{color-scheme:dark;background:#17191c;color:#e5e5e5}" +
+            "html[data-senseis-dark=\"1\"]{color-scheme:dark;background:#17191c!important;color:#e5e5e5!important}" +
             "html[data-senseis-dark=\"1\"] body{background:#17191c!important;color:#e5e5e5!important}" +
-            "html[data-senseis-dark=\"1\"] body *{border-color:#45494f}" +
-            "html[data-senseis-dark=\"1\"] a{color:#8ab4f8}" +
-            "html[data-senseis-dark=\"1\"] a:visited{color:#c6a5e8}" +
+            "html[data-senseis-dark=\"1\"] body *:not(img):not(svg):not(canvas):not(video):not(iframe){color:#e5e5e5!important;background-color:transparent!important;border-color:#45494f}" +
+            "html[data-senseis-dark=\"1\"] a,html[data-senseis-dark=\"1\"] a *{color:#8ab4f8!important}" +
+            "html[data-senseis-dark=\"1\"] a:visited,html[data-senseis-dark=\"1\"] a:visited *{color:#c6a5e8!important}" +
             "html[data-senseis-dark=\"1\"] h1,html[data-senseis-dark=\"1\"] h2,html[data-senseis-dark=\"1\"] h3," +
-            "html[data-senseis-dark=\"1\"] h4,html[data-senseis-dark=\"1\"] h5,html[data-senseis-dark=\"1\"] h6{color:#f0f0f0}" +
-            "html[data-senseis-dark=\"1\"] table,html[data-senseis-dark=\"1\"] th,html[data-senseis-dark=\"1\"] td{border-color:#555;background-color:#202327;color:#e5e5e5}" +
-            "html[data-senseis-dark=\"1\"] blockquote{background:#202327;color:#ddd}" +
-            "html[data-senseis-dark=\"1\"] pre,html[data-senseis-dark=\"1\"] code{background:#22262b;color:#e5e5e5}" +
-            "html[data-senseis-dark=\"1\"] input,html[data-senseis-dark=\"1\"] textarea,html[data-senseis-dark=\"1\"] select,html[data-senseis-dark=\"1\"] button{background:#292d33;color:#eee;border:1px solid #555}" +
-            "html[data-senseis-dark=\"1\"] hr{border-color:#555}" +
+            "html[data-senseis-dark=\"1\"] h4,html[data-senseis-dark=\"1\"] h5,html[data-senseis-dark=\"1\"] h6{color:#f0f0f0!important}" +
+            "html[data-senseis-dark=\"1\"] table,html[data-senseis-dark=\"1\"] th,html[data-senseis-dark=\"1\"] td{border-color:#555!important;background-color:#202327!important;color:#e5e5e5!important}" +
+            "html[data-senseis-dark=\"1\"] blockquote{background-color:#202327!important;color:#ddd!important}" +
+            "html[data-senseis-dark=\"1\"] pre,html[data-senseis-dark=\"1\"] code{background-color:#22262b!important;color:#e5e5e5!important}" +
+            "html[data-senseis-dark=\"1\"] input,html[data-senseis-dark=\"1\"] textarea,html[data-senseis-dark=\"1\"] select,html[data-senseis-dark=\"1\"] button{background-color:#292d33!important;color:#eee!important;border:1px solid #555!important}" +
+            "html[data-senseis-dark=\"1\"] hr{border-color:#555!important}" +
             "html[data-senseis-dark=\"1\"] .senseis-sgf-placeholder{background:#34302a;color:#f2dfbd;border-color:#88734f}" +
             "html[data-senseis-dark=\"1\"] .senseis-sgf-panel{background:#25282c;border-color:#555}" +
             "html[data-senseis-dark=\"1\"] .senseis-sgf-error{background:#3b2424;color:#ffcaca}" +
