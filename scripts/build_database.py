@@ -203,6 +203,9 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
     conn.execute("PRAGMA cache_size=-65536")
     started = time.time()
     counters: Counter[str] = Counter()
+    # Exact per-extension payload accounting: original bytes vs bytes actually
+    # stored in SQLite after optional deflate compression.
+    extension_stats: dict[str, dict[str, int]] = {}
     compress_sgf = False
     if sgf_compression_report and sgf_compression_report.is_file():
         report = json.loads(sgf_compression_report.read_text(encoding="utf-8"))
@@ -250,6 +253,12 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
                     continue
                 original_size = len(data)
                 stored, encoding = store_payload(data, path, compress_sgf=compress_sgf)
+                suffix = PurePosixPath(path).suffix.lower() or "[no extension]"
+                stats = extension_stats.setdefault(suffix, {"files": 0, "original_bytes": 0, "stored_payload_bytes": 0, "compressed_files": 0})
+                stats["files"] += 1
+                stats["original_bytes"] += original_size
+                stats["stored_payload_bytes"] += len(stored)
+                stats["compressed_files"] += int(encoding == "deflate")
                 file_batch.append((path, name, mime, original_size, hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
                 counters["files"] += 1
                 counters["bytes_original"] += original_size
@@ -326,6 +335,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
         result = {
             "table_storage_bytes": table_storage,
             "payload_storage": payload_storage,
+            "file_type_storage": dict(sorted(extension_stats.items(), key=lambda item: item[1]["stored_payload_bytes"], reverse=True)),
             "members_seen": int(counters["members_seen"]),
             "files": file_count,
             "pages": page_count,
