@@ -101,7 +101,7 @@ function enhance(){
  mapInternalUrls();
  Array.prototype.slice.call(document.querySelectorAll("img[src]")).forEach(function(img){
   var u;try{u=new URL(img.getAttribute("src"),document.baseURI);}catch(e){return;}
-  if(!/(^|\/) [0-9a-f]{32}\.png$/i.test(u.pathname.replace(/ /g,"")))return;
+  if(!/(^|\/)[0-9a-f]{32}\.png$/i.test(u.pathname))return;
   var anchor=img.closest?img.closest("a"):null;
   if(anchor){anchor.removeAttribute("href");anchor.removeAttribute("target");anchor.removeAttribute("download");anchor.removeAttribute("onclick");anchor.title="Go diagram";anchor.style.cursor="default";}
   bindDiagram(img,LOCAL+u.pathname.replace(/\.png$/i,".sgf"));
