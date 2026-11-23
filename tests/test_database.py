@@ -117,7 +117,11 @@ class SenseisDatabaseTests(unittest.TestCase):
             finally:
                 conn.close()
 
-    def test_webp_lossy_conversion_reduces_png_and_updates_mime(self):
+    def test_pngquant_reduces_png_to_eight_colors_and_strips_metadata(self):
+        import shutil
+        if not shutil.which("pngquant"):
+            self.skipTest("pngquant is not installed")
+
         def chunk(kind: bytes, payload: bytes) -> bytes:
             body = kind + payload
             return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
@@ -133,8 +137,9 @@ class SenseisDatabaseTests(unittest.TestCase):
                 red, green, blue = palette[(state >> 27) & 31]
                 rows.extend((red, green, blue))
         png = (
-            b"\x89PNG\r\n\x1a\n"
+            b"\\x89PNG\\r\\n\\x1a\\n"
             + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"tEXt", b"Comment\\x00metadata to strip")
             + chunk(b"IDAT", zlib.compress(bytes(rows), 1))
             + chunk(b"IEND", b"")
         )
@@ -158,14 +163,14 @@ class SenseisDatabaseTests(unittest.TestCase):
             finally:
                 conn.close()
 
-        self.assertIn("WebP progress: 1/1 (100.0%)", progress_log.getvalue())
-        self.assertIn("WebP complete: 1 PNG files", progress_log.getvalue())
+        self.assertIn("pngquant progress: 1/1 (100.0%)", progress_log.getvalue())
+        self.assertIn("pngquant complete: 1 PNG files", progress_log.getvalue())
         self.assertEqual(result["png_files_seen"], 1)
-        self.assertEqual(result["webp_converted"], 1)
+        self.assertEqual(result["pngquant_converted"], 1)
         self.assertLess(len(optimized), len(png))
-        self.assertEqual(optimized[:4], b"RIFF")
-        self.assertEqual(optimized[8:12], b"WEBP")
-        self.assertEqual(mime, "image/webp")
+        self.assertTrue(optimized.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertEqual(mime, "image/png")
+        self.assertNotIn(b"tEXt", optimized)
 
     def test_archive_path_traversal_is_rejected(self):
         from scripts.build_database import safe_tar_path

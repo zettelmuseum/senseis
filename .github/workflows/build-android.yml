@@ -59,11 +59,11 @@ jobs:
             core.notice(message);
             core.info(message);
 
-      - name: Install WebP encoder
+      - name: Install pngquant
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends webp
-          cwebp -version
+          sudo apt-get install -y --no-install-recommends pngquant
+          pngquant --version
 
       - name: Set up Python
         uses: actions/setup-python@v5
