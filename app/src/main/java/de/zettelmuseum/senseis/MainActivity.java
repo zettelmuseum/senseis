@@ -33,6 +33,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URLDecoder;
 import java.util.ArrayList;
@@ -468,6 +469,36 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private boolean containsAllTerms(InputStream stream, String[] terms) throws Exception {
+        boolean[] found = new boolean[terms.length];
+        int remaining = 0;
+        int overlap = 0;
+        for (String term : terms) {
+            if (term.length() == 0) continue;
+            remaining++;
+            overlap = Math.max(overlap, term.length() - 1);
+        }
+        if (remaining == 0) return false;
+        char[] chars = new char[8192];
+        StringBuilder tail = new StringBuilder();
+        InputStreamReader reader = new InputStreamReader(stream, "UTF-8");
+        int count;
+        while ((count = reader.read(chars)) != -1) {
+            String part = (tail.toString() + new String(chars, 0, count)).toLowerCase(Locale.ROOT);
+            for (int i = 0; i < terms.length; i++) {
+                if (!found[i] && terms[i].length() > 0 && part.contains(terms[i])) {
+                    found[i] = true;
+                    remaining--;
+                }
+            }
+            if (remaining == 0) return true;
+            tail.setLength(0);
+            if (overlap > 0 && part.length() > overlap) tail.append(part.substring(part.length() - overlap));
+            else tail.append(part);
+        }
+        return false;
+    }
+
     private void searchPages(final String query) {
         if (query.length() == 0) return;
         progress.setVisibility(View.VISIBLE);
@@ -476,18 +507,20 @@ public class MainActivity extends Activity {
                 final List<String[]> results = new ArrayList<String[]>();
                 Cursor cursor = null;
                 try {
-                    String pattern = "%" + query.replace("%", "\\%").replace("_", "\\_") + "%";
-                    String[] terms = query.trim().split("\\s+");
-                    StringBuilder fts = new StringBuilder();
-                    for (String term : terms) {
-                        if (term.length() == 0) continue;
-                        if (fts.length() > 0) fts.append(" AND ");
-                        fts.append("\"").append(term.replace("\"", "\"\"")).append("\"");
+                    String[] terms = query.toLowerCase(Locale.ROOT).split("\\s+");
+                    cursor = database.rawQuery("SELECT pages.path,pages.title,files.data,files.encoding FROM pages JOIN files ON files.path=pages.path ORDER BY pages.title COLLATE NOCASE", null);
+                    while (cursor.moveToNext() && results.size() < 100) {
+                        String title = cursor.getString(1);
+                        boolean match = title != null && containsAllTerms(title, terms);
+                        if (!match) {
+                            byte[] payload = cursor.getBlob(2);
+                            InputStream pageStream = new ByteArrayInputStream(payload);
+                            if ("deflate".equals(cursor.getString(3))) pageStream = new InflaterInputStream(pageStream);
+                            try { match = containsAllTerms(pageStream, terms); }
+                            finally { pageStream.close(); }
+                        }
+                        if (match) results.add(new String[]{cursor.getString(0), title});
                     }
-                    String ftsQuery = fts.toString();
-                    cursor = database.rawQuery("SELECT pages.path,pages.title FROM pages_search JOIN pages ON pages.rowid=pages_search.docid WHERE pages_search MATCH ? ORDER BY CASE WHEN pages.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, pages.title COLLATE NOCASE LIMIT 100",
-                            new String[]{ftsQuery, pattern});
-                    while (cursor.moveToNext()) results.add(new String[]{cursor.getString(0), cursor.getString(1)});
                 } catch (Exception ignored) {
                 } finally { if (cursor != null) cursor.close(); }
                 mainHandler.post(new Runnable() {
@@ -557,9 +590,9 @@ public class MainActivity extends Activity {
                     input.close();
                     SQLiteDatabase test = SQLiteDatabase.openDatabase(temporary.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
                     Cursor check = test.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-                    boolean valid = check.moveToFirst() && "3".equals(check.getString(0));
+                    boolean valid = check.moveToFirst() && "4".equals(check.getString(0));
                     check.close();
-                    Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('files','pages','aliases','pages_search')", null);
+                    Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('files','pages','aliases')", null);
                     valid = valid && tables.moveToFirst() && tables.getInt(0) == 4;
                     tables.close();
                     test.close();
