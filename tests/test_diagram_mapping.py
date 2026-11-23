@@ -26,7 +26,7 @@ class DiagramMappingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             archive = self.make_archive(
                 Path(temporary),
-                b"<html><body><img src='images/diagram.png'><a href='games/game.sgf'>SGF</a></body></html>",
+                b"<html><body><a href='games/game.sgf'><img src='images/diagram.png'></a></body></html>",
             )
             report = analyze_archive(archive)
         self.assertTrue(report["all_pngs_uniquely_mapped"])
