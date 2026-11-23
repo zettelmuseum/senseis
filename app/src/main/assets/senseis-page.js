@@ -35,15 +35,17 @@ function mapInternalUrls(){
  if("IntersectionObserver" in window){
   var observer=new IntersectionObserver(function(items){
    items.forEach(function(item){
-    if(!item.isIntersecting)return;
     var img=item.target,src=img.getAttribute("data-senseis-src");
-    if(src){img.setAttribute("src",src);img.removeAttribute("data-senseis-src");}
-    observer.unobserve(img);
+    if(item.isIntersecting){
+     if(src&&!img.hasAttribute("src"))img.setAttribute("src",src);
+    }else if(img.hasAttribute("src")&&!img.__senseisPinned){
+     img.removeAttribute("src");
+    }
    });
-  },{rootMargin:"600px 0px"});
+  },{rootMargin:"300px 0px"});
   images.forEach(function(img){observer.observe(img);});
  }else{
-  images.forEach(function(img){img.setAttribute("src",img.getAttribute("data-senseis-src"));img.removeAttribute("data-senseis-src");});
+  images.forEach(function(img){img.setAttribute("src",img.getAttribute("data-senseis-src"));});
  }
  document.querySelectorAll("base").forEach(function(b){b.remove();});
 }
@@ -81,7 +83,7 @@ function bindDiagram(img,sgfUrl){
  img.addEventListener("click",function(event){
   event.preventDefault();event.stopPropagation();
   restoreActive();
-  var original=img.cloneNode(true);
+  img.__senseisPinned=true;\n  var original=img.cloneNode(true);
   original.__senseisBound=false;
   var panel=document.createElement("div");
   panel.style.cssText="position:relative;margin:12px auto;max-width:100%;";
