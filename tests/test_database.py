@@ -83,14 +83,9 @@ class SenseisDatabaseTests(unittest.TestCase):
                 self.assertTrue(sgf.startswith(b"(;GM[1]"))
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0], 3)
                 columns = [row[1] for row in conn.execute("PRAGMA table_info(pages)")]
-                self.assertNotIn("search_text", columns)
-                matches = conn.execute(
-                    "SELECT pages.path FROM pages_search JOIN pages ON pages.rowid=pages_search.docid WHERE pages_search MATCH ?", ('"Rules" AND "strategy"',)
-                ).fetchall()
-                self.assertIn(("snapshot/Go/Introduction.html",), matches)
-                # SQLite integrity_check cannot validate contentless FTS4 tables
-                # and reports a SQL logic error for this supported storage mode.
-                # The MATCH assertion above verifies the inverted index is usable.
+                self.assertEqual(columns, ["path", "title"])
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pages_search'").fetchone()[0], 0)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND sql IS NOT NULL").fetchone()[0], 0)
             finally:
                 conn.close()
 
