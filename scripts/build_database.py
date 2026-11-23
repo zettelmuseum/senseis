@@ -184,7 +184,6 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
 
         insert_sql = "INSERT OR REPLACE INTO files(path,name,mime,size,sha256,encoding,is_html,data) VALUES(?,?,?,?,?,?,?,?)"
         file_batch: list[tuple] = []
-        alias_batch: list[tuple[str, str]] = []
         with tarfile.open(archive, mode="r|bz2") as tar:
             for member in tar:
                 counters["members_seen"] += 1
@@ -221,23 +220,17 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
                 original_size = len(data)
                 stored, encoding = store_payload(data, path, compress_sgf=compress_sgf)
                 file_batch.append((path, name, mime, original_size, hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
-                # HTML aliases are added with the title in pass 2; avoid duplicate writes.
-                if not is_html:
-                    alias_batch.extend(alias_rows(path, name))
                 counters["files"] += 1
                 counters["bytes_original"] += original_size
                 counters["html_files"] += int(is_html)
                 counters["sgf_files"] += int(path.lower().endswith(".sgf"))
                 if len(file_batch) >= 1000:
                     conn.executemany(insert_sql, file_batch)
-                    conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", alias_batch)
                     conn.commit()
                     file_batch.clear()
-                    alias_batch.clear()
                     print(f"Stored {counters['files']:,} files ({counters['bytes_original'] / (1024**2):,.1f} MiB uncompressed)", flush=True)
         if file_batch:
             conn.executemany(insert_sql, file_batch)
-            conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", alias_batch)
         conn.commit()
         if counters["files"] == 0:
             raise RuntimeError("No regular files were found in the tar.bz2 archive.")
@@ -270,6 +263,20 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
             conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", html_alias_batch)
         conn.commit()
 
+        # Add attachment aliases only after page aliases, preserving the original
+        # precedence when a file name collides with a wiki page alias.
+        attachment_alias_batch: list[tuple[str, str]] = []
+        attachment_cursor = conn.execute("SELECT path,name FROM files WHERE is_html=0 ORDER BY path")
+        for index, (path, name) in enumerate(attachment_cursor, 1):
+            attachment_alias_batch.extend(alias_rows(path, name))
+            if len(attachment_alias_batch) >= 3000:
+                conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", attachment_alias_batch)
+                conn.commit()
+                attachment_alias_batch.clear()
+        if attachment_alias_batch:
+            conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", attachment_alias_batch)
+        conn.commit()
+
         file_count = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
         page_count = int(conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0])
         write_home_page(conn, file_count, page_count)
@@ -280,14 +287,10 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
         conn.execute("PRAGMA optimize")
         conn.commit()
 
-        # Reclaim SQLite pages freed by removed PNG payloads.
+        # The database is built from scratch and no cleanup DELETE/VACUUM pass is needed.
         before_compaction_bytes = temporary.stat().st_size
         before_compaction_freelist_pages = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
-        conn.commit()
-        conn.execute("VACUUM")
-        conn.execute("PRAGMA optimize")
-        conn.commit()
-        after_compaction_freelist_pages = int(conn.execute("PRAGMA freelist_count").fetchone()[0])
+        after_compaction_freelist_pages = before_compaction_freelist_pages
         # Collect storage diagnostics while the database connection is still open.
         storage_rows = conn.execute("SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name ORDER BY bytes DESC").fetchall()
         table_storage = {name: int(size) for name, size in storage_rows}
