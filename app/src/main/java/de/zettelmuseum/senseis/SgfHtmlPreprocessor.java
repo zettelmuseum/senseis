@@ -6,8 +6,8 @@ import java.util.regex.Pattern;
 
 /**
  * Rewrites SGF hyperlinks before WebView parses an archived HTML page.
- * The link's expensive embedded contents (including any preview element) are
- * discarded; only a small, lazy-open placeholder and its SGF URL remain.
+ * The link's expensive embedded contents are discarded; only a small,
+ * lazy-open placeholder and its SGF URL remain.
  */
 final class SgfHtmlPreprocessor {
     private static final Pattern SGF_ANCHOR =
@@ -18,6 +18,24 @@ final class SgfHtmlPreprocessor {
     private static final Pattern ATTRIBUTE =
             Pattern.compile("(?is)(?:^|\\s)%s\\s*=");
     private static final Pattern END_HEAD = Pattern.compile("(?i)</head\\s*>");
+    private static final String THEME_STYLE =
+            "<style id=\"senseis-theme-style\">" +
+            "html[data-senseis-dark=\"1\"]{color-scheme:dark;background:#17191c;color:#e5e5e5}" +
+            "html[data-senseis-dark=\"1\"] body{background:#17191c!important;color:#e5e5e5!important}" +
+            "html[data-senseis-dark=\"1\"] body *{border-color:#45494f}" +
+            "html[data-senseis-dark=\"1\"] a{color:#8ab4f8}" +
+            "html[data-senseis-dark=\"1\"] a:visited{color:#c6a5e8}" +
+            "html[data-senseis-dark=\"1\"] h1,html[data-senseis-dark=\"1\"] h2,html[data-senseis-dark=\"1\"] h3," +
+            "html[data-senseis-dark=\"1\"] h4,html[data-senseis-dark=\"1\"] h5,html[data-senseis-dark=\"1\"] h6{color:#f0f0f0}" +
+            "html[data-senseis-dark=\"1\"] table,html[data-senseis-dark=\"1\"] th,html[data-senseis-dark=\"1\"] td{border-color:#555;background-color:#202327;color:#e5e5e5}" +
+            "html[data-senseis-dark=\"1\"] blockquote{background:#202327;color:#ddd}" +
+            "html[data-senseis-dark=\"1\"] pre,html[data-senseis-dark=\"1\"] code{background:#22262b;color:#e5e5e5}" +
+            "html[data-senseis-dark=\"1\"] input,html[data-senseis-dark=\"1\"] textarea,html[data-senseis-dark=\"1\"] select,html[data-senseis-dark=\"1\"] button{background:#292d33;color:#eee;border:1px solid #555}" +
+            "html[data-senseis-dark=\"1\"] hr{border-color:#555}" +
+            "html[data-senseis-dark=\"1\"] .senseis-sgf-placeholder{background:#34302a;color:#f2dfbd;border-color:#88734f}" +
+            "html[data-senseis-dark=\"1\"] .senseis-sgf-panel{background:#25282c;border-color:#555}" +
+            "html[data-senseis-dark=\"1\"] .senseis-sgf-error{background:#3b2424;color:#ffcaca}" +
+            "</style>";
     private static final String PLACEHOLDER_STYLE =
             "<style>" +
             ".senseis-sgf-placeholder{display:inline-flex;align-items:center;justify-content:center;" +
@@ -35,10 +53,25 @@ final class SgfHtmlPreprocessor {
     private SgfHtmlPreprocessor() { }
 
     static String prepare(String html, String scriptUrl) {
+        return prepare(html, scriptUrl, false);
+    }
+
+    static String prepare(String html, String scriptUrl, boolean darkMode) {
         if (html == null) return "";
         String result = replaceSgfAnchors(html);
         result = makeImagesLazy(result);
+        result = setDarkModeAttribute(result, darkMode);
         return injectAppResources(result, scriptUrl);
+    }
+
+    private static String setDarkModeAttribute(String html, boolean darkMode) {
+        Pattern root = Pattern.compile("(?is)<html\\b([^>]*)>");
+        Matcher matcher = root.matcher(html);
+        if (!matcher.find()) return html;
+        String attrs = matcher.group(1).replaceAll(
+                "(?i)\\sdata-senseis-dark\\s*=\\s*(['\"]).*?\\1", "");
+        if (darkMode) attrs += " data-senseis-dark=\"1\"";
+        return html.substring(0, matcher.start()) + "<html" + attrs + ">" + html.substring(matcher.end());
     }
 
     static String replaceSgfAnchors(String html) {
@@ -110,6 +143,7 @@ final class SgfHtmlPreprocessor {
         boolean hasScript = html.indexOf("senseis-page.js") >= 0;
         boolean hasPlaceholders = html.indexOf("senseis-sgf-placeholder") >= 0;
         StringBuilder additions = new StringBuilder();
+        if (html.indexOf("senseis-theme-style") < 0) additions.append(THEME_STYLE);
         if (hasPlaceholders && html.indexOf("senseis-sgf-placeholder{") < 0) {
             additions.append(PLACEHOLDER_STYLE);
         }
@@ -122,8 +156,7 @@ final class SgfHtmlPreprocessor {
 
         Matcher endHead = END_HEAD.matcher(html);
         if (endHead.find()) {
-            return html.substring(0, endHead.start()) + additions
-                    + html.substring(endHead.start());
+            return html.substring(0, endHead.start()) + additions + html.substring(endHead.start());
         }
         return additions + html;
     }
