@@ -200,6 +200,14 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
+                if (isWikiHost(uri.getHost())) {
+                    webView.loadUrl(toLocalUrl(uri));
+                    return true;
+                }
+                if (isWikiHost(uri.getHost())) {
+                    webView.loadUrl(toLocalUrl(uri));
+                    return true;
+                }
                 return !LOCAL_HOST.equalsIgnoreCase(uri.getHost());
             }
 
@@ -219,6 +227,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 status.setText(url.replace(BASE_URL, ""));
+                injectPageEnhancements(view);
             }
         });
         root.addView(webView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -226,10 +235,42 @@ public class MainActivity extends Activity {
         loadHome();
     }
 
+    private boolean isWikiHost(String host) {
+        return host != null && ("senseis.xmp.net".equalsIgnoreCase(host) || "www.senseis.xmp.net".equalsIgnoreCase(host));
+    }
+
+    private String toLocalUrl(Uri uri) {
+        StringBuilder value = new StringBuilder(BASE_URL);
+        String path = uri.getEncodedPath();
+        if (path != null && path.length() > 1) value.append(path.substring(1));
+        if (uri.getEncodedQuery() != null) value.append('?').append(uri.getEncodedQuery());
+        if (uri.getEncodedFragment() != null) value.append('#').append(uri.getEncodedFragment());
+        return value.toString();
+    }
+
+    private void injectPageEnhancements(WebView target) {
+        InputStream input = null;
+        try {
+            input = getAssets().open("senseis-page.js");
+            byte[] buffer = new byte[8192];
+            StringBuilder script = new StringBuilder();
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                script.append(new String(buffer, 0, count, "UTF-8"));
+            }
+            target.evaluateJavascript(script.toString(), null);
+        } catch (Exception ignored) {
+        } finally {
+            if (input != null) try { input.close(); } catch (Exception ignored) { }
+        }
+    }
+
     private WebResourceResponse routeRequest(Uri uri) {
         String scheme = uri.getScheme();
         String host = uri.getHost();
-        if (!"https".equalsIgnoreCase(scheme) || !LOCAL_HOST.equalsIgnoreCase(host)) {
+        boolean localRequest = "https".equalsIgnoreCase(scheme) && LOCAL_HOST.equalsIgnoreCase(host);
+        boolean wikiRequest = ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme)) && isWikiHost(host);
+        if (!localRequest && !wikiRequest) {
             if ("data".equalsIgnoreCase(scheme) || "blob".equalsIgnoreCase(scheme)) return null;
             return response("text/plain", "utf-8", new byte[0], 403, "Blocked");
         }
@@ -595,7 +636,7 @@ public class MainActivity extends Activity {
                     input.close();
                     SQLiteDatabase test = SQLiteDatabase.openDatabase(temporary.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
                     Cursor check = test.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-                    boolean valid = check.moveToFirst() && "4".equals(check.getString(0));
+                    boolean valid = check.moveToFirst() && "5".equals(check.getString(0));
                     check.close();
                     Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('files','pages','aliases')", null);
                     valid = valid && tables.moveToFirst() && tables.getInt(0) == 4;
