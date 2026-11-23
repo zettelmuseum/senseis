@@ -20,9 +20,10 @@ final class SgfHtmlPreprocessor {
     private static final Pattern END_HEAD = Pattern.compile("(?i)</head\\s*>");
     private static final String THEME_STYLE =
             "<style id=\"senseis-theme-style\">" +
-            "html[data-senseis-dark=\"1\"]{color-scheme:dark;background:#17191c!important;color:#e5e5e5!important}" +
-            "html[data-senseis-dark=\"1\"] body{background:#17191c!important;color:#e5e5e5!important}" +
-            "html[data-senseis-dark=\"1\"] body *:not(img):not(svg):not(canvas):not(video):not(iframe){color:#e5e5e5!important;background-color:transparent!important;border-color:#45494f}" +
+            "html[data-senseis-dark=\"1\"]{color-scheme:dark;background-color:#17191c!important;background-image:none!important;color:#e5e5e5!important}" +
+            "html[data-senseis-dark=\"1\"] body{background-color:#17191c!important;background-image:none!important;color:#e5e5e5!important}" +
+            "html[data-senseis-dark=\"1\"] body *:not(img):not(svg):not(canvas):not(video):not(iframe){color:#e5e5e5!important;background-color:transparent!important;background-image:none!important;background-repeat:no-repeat!important;border-color:#45494f!important}" +
+            "html[data-senseis-dark=\"1\"] body *:before,html[data-senseis-dark=\"1\"] body *:after{background-color:transparent!important;background-image:none!important}" +
             "html[data-senseis-dark=\"1\"] a,html[data-senseis-dark=\"1\"] a *{color:#8ab4f8!important}" +
             "html[data-senseis-dark=\"1\"] a:visited,html[data-senseis-dark=\"1\"] a:visited *{color:#c6a5e8!important}" +
             "html[data-senseis-dark=\"1\"] h1,html[data-senseis-dark=\"1\"] h2,html[data-senseis-dark=\"1\"] h3," +
