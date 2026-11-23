@@ -333,7 +333,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--summary", type=Path, help="Optional JSON build summary path")\n    parser.add_argument("--sgf-compression-report", type=Path, help="Use the measured SGF compression recommendation from this report")
+    parser.add_argument("--summary", type=Path, help="Optional JSON build summary path")
+    parser.add_argument("--sgf-compression-report", type=Path, help="Use the measured SGF compression recommendation from this report")
     args = parser.parse_args()
     try:
         result = build_database(args.archive, args.output, sgf_compression_report=args.sgf_compression_report)
