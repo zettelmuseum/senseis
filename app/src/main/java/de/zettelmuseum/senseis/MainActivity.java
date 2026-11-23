@@ -165,7 +165,7 @@ public class MainActivity extends Activity {
             @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap icon) {
                 status.setText(url.replace(BASE_URL, "")); status.setVisibility(View.VISIBLE);
             }
-            @Override public void onPageFinished(WebView v, String url) { status.setText(url.replace(BASE_URL, "")); injectPageEnhancements(v); }
+            @Override public void onPageFinished(WebView v, String url) { status.setText(url.replace(BASE_URL, "")); }
         });
         root.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1f));
         status.setVisibility(View.VISIBLE); loadHome();
@@ -181,16 +181,6 @@ public class MainActivity extends Activity {
         if (uri.getEncodedQuery() != null) b.append('?').append(uri.getEncodedQuery());
         if (uri.getEncodedFragment() != null) b.append('#').append(uri.getEncodedFragment());
         return b.toString();
-    }
-
-    private void injectPageEnhancements(WebView target) {
-        InputStream in = null;
-        try {
-            in = getAssets().open("senseis-page.js"); byte[] buf = new byte[8192]; StringBuilder script = new StringBuilder(); int n;
-            while ((n = in.read(buf)) != -1) script.append(new String(buf, 0, n, "UTF-8"));
-            target.evaluateJavascript(script.toString(), null);
-        } catch (Exception ignored) {
-        } finally { if (in != null) try { in.close(); } catch (Exception ignored) { } }
     }
 
     private WebResourceResponse routeRequest(Uri uri) {
@@ -218,13 +208,26 @@ public class MainActivity extends Activity {
             if (alias != null) e = findEntry(alias);
         }
         if (e == null) return missingPage(path);
-        String mime = mimeFor(e.path);
-        String charset = mime.startsWith("text/") || mime.contains("xml") || mime.contains("javascript") ? "utf-8" : null;
+        String mime = e.isHtml() ? "text/html" : mimeFor(e.path);
+        String charset = e.isHtml() || mime.startsWith("text/") || mime.contains("xml") || mime.contains("javascript") ? "utf-8" : null;
         if (mime.equals("application/x-go-sgf")) charset = null;
         Map<String, String> headers = new HashMap<String, String>();
         headers.put("Cache-Control", "no-store"); headers.put("X-Content-Type-Options", "nosniff");
-        try { return new WebResourceResponse(mime, charset, 200, "OK", headers, openPayloadStream(e)); }
-        catch (Exception ex) { return response("text/plain", "utf-8", ("Unable to read local file: " + ex.getMessage()).getBytes(), 500, "Archive error"); }
+        InputStream body = null;
+        try {
+            body = openPayloadStream(e);
+            if (e.isHtml()) {
+                byte[] unpacked = readFully(body);
+                body.close();
+                String html = new String(unpacked, "UTF-8");
+                String prepared = SgfHtmlPreprocessor.prepare(html, BASE_URL + "__app/senseis-page.js");
+                body = new ByteArrayInputStream(prepared.getBytes("UTF-8"));
+            }
+            return new WebResourceResponse(mime, charset, 200, "OK", headers, body);
+        } catch (Exception ex) {
+            if (body != null) try { body.close(); } catch (IOException ignored) { }
+            return response("text/plain", "utf-8", ("Unable to read local file: " + ex.getMessage()).getBytes(), 500, "Archive error");
+        }
     }
 
     private WebResourceResponse openBundledAsset(String path) {
@@ -236,7 +239,8 @@ public class MainActivity extends Activity {
         else if (path.endsWith(".css")) mime = "text/css";
         else return response("text/plain", "utf-8", new byte[0], 404, "Not Found");
         try {
-            InputStream in = getAssets().open("besogo/" + path);
+            String assetPath = "senseis-page.js".equals(path) ? path : "besogo/" + path;
+            InputStream in = getAssets().open(assetPath);
             Map<String, String> headers = new HashMap<String, String>();
             headers.put("Cache-Control", "public, max-age=31536000");
             headers.put("X-Content-Type-Options", "nosniff");
@@ -351,6 +355,14 @@ public class MainActivity extends Activity {
     private WebResourceResponse response(String mime, String charset, byte[] data, int code, String reason) {
         if (android.os.Build.VERSION.SDK_INT >= 21) return new WebResourceResponse(mime, charset, code, reason, new HashMap<String, String>(), new ByteArrayInputStream(data));
         return new WebResourceResponse(mime, charset, new ByteArrayInputStream(data));
+    }
+
+    private byte[] readFully(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[16384];
+        int count;
+        while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+        return out.toByteArray();
     }
 
     private InputStream openPayloadStream(Entry entry) throws IOException {
