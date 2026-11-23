@@ -83,7 +83,8 @@ function bindDiagram(img,sgfUrl){
  img.addEventListener("click",function(event){
   event.preventDefault();event.stopPropagation();
   restoreActive();
-  img.__senseisPinned=true;\n  var original=img.cloneNode(true);
+  img.__senseisPinned=true;
+  var original=img.cloneNode(true);
   original.__senseisBound=false;
   var panel=document.createElement("div");
   panel.style.cssText="position:relative;margin:12px auto;max-width:100%;";
