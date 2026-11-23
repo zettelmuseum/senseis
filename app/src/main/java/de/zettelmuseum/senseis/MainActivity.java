@@ -129,8 +129,9 @@ public class MainActivity extends Activity {
         getPreferences(MODE_PRIVATE).edit().putBoolean("dark_mode", darkMode).apply();
         if (themeButton != null) themeButton.setText(darkMode ? "Light" : "Dark");
         if (webView != null) {
-            String value = darkMode ? "1" : "0";
-            webView.evaluateJavascript("document.documentElement.setAttribute('data-senseis-dark','" + value + "')", null);
+            webView.setBackgroundColor(darkMode ? Color.rgb(23, 25, 28) : Color.WHITE);
+            // Reload so the selected theme is applied to the HTML before WebView paints it.
+            webView.reload();
         }
     }
 
@@ -161,7 +162,7 @@ public class MainActivity extends Activity {
 
     private void showBrowser() {
         removeBrowser();
-        webView = new WebView(this); webView.setBackgroundColor(Color.WHITE);
+        webView = new WebView(this); webView.setBackgroundColor(darkMode ? Color.rgb(23, 25, 28) : Color.WHITE);
         WebSettings s = webView.getSettings(); s.setJavaScriptEnabled(true); s.setDomStorageEnabled(false); s.setDatabaseEnabled(false); s.setCacheMode(WebSettings.LOAD_NO_CACHE); s.setSaveFormData(false);
         s.setAllowFileAccess(false); s.setAllowContentAccess(false); s.setSupportZoom(true);
         s.setBuiltInZoomControls(true); s.setDisplayZoomControls(false); s.setSupportMultipleWindows(false); s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
