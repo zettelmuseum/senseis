@@ -204,10 +204,6 @@ public class MainActivity extends Activity {
                     webView.loadUrl(toLocalUrl(uri));
                     return true;
                 }
-                if (isWikiHost(uri.getHost())) {
-                    webView.loadUrl(toLocalUrl(uri));
-                    return true;
-                }
                 return !LOCAL_HOST.equalsIgnoreCase(uri.getHost());
             }
 
@@ -215,6 +211,10 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 Uri uri = Uri.parse(url);
+                if (isWikiHost(uri.getHost())) {
+                    webView.loadUrl(toLocalUrl(uri));
+                    return true;
+                }
                 return !LOCAL_HOST.equalsIgnoreCase(uri.getHost());
             }
 
@@ -428,7 +428,15 @@ public class MainActivity extends Activity {
         Cursor c = null;
         try {
             c = database.rawQuery("SELECT path FROM aliases WHERE alias=? LIMIT 1", new String[]{key});
-            return c.moveToFirst() ? c.getString(0) : null;
+            if (c.moveToFirst()) return c.getString(0);
+            c.close();
+            c = null;
+            int slash = key.lastIndexOf('/');
+            if (slash >= 0 && slash + 1 < key.length()) {
+                c = database.rawQuery("SELECT path FROM aliases WHERE alias=? LIMIT 1", new String[]{key.substring(slash + 1)});
+                if (c.moveToFirst()) return c.getString(0);
+            }
+            return null;
         } catch (Exception e) { return null; }
         finally { if (c != null) c.close(); }
     }
@@ -673,7 +681,7 @@ public class MainActivity extends Activity {
             database = SQLiteDatabase.openDatabase(databaseFile.getAbsolutePath(), null,
                     SQLiteDatabase.OPEN_READONLY | SQLiteDatabase.NO_LOCALIZED_COLLATORS);
             Cursor check = database.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-            boolean valid = check.moveToFirst() && "3".equals(check.getString(0));
+            boolean valid = check.moveToFirst() && "5".equals(check.getString(0));
             check.close();
             return valid;
         } catch (Exception e) {
