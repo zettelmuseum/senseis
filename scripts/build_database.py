@@ -61,7 +61,8 @@ def mime_for(path: str, is_html: bool) -> str:
 
 def store_payload(data: bytes, path: str, compress_sgf: bool = False) -> tuple[bytes, str]:
     """Deflate text-like files only when the compressed representation is smaller."""
-    suffix = PurePosixPath(path).suffix.lower()\n    if len(data) >= 256 and (suffix in TEXT_EXTENSIONS or (suffix == ".sgf" and compress_sgf)):
+    suffix = PurePosixPath(path).suffix.lower()
+    if len(data) >= 256 and (suffix in TEXT_EXTENSIONS or (suffix == ".sgf" and compress_sgf)):
         packed = zlib.compress(data, 6)
         if len(packed) + 16 < len(data):
             return packed, "deflate"
@@ -254,7 +255,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
             if not title:
                 heading = soup.find(["h1", "h2"])
                 title = heading.get_text(" ", strip=True) if heading else PurePosixPath(path).stem.replace("_", " ")
-            title = re.sub(r"\\s+", " ", title).strip()[:300] or name
+            title = re.sub(r"\s+", " ", title).strip()[:300] or name
             page_batch.append((path, title))
             html_alias_batch.extend(alias_rows(path, name, title))
             if len(page_batch) >= 1000:
