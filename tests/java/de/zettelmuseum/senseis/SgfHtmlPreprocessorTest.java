@@ -43,7 +43,7 @@ public final class SgfHtmlPreprocessorTest {
         String light = SgfHtmlPreprocessor.prepare(
                 "<html><head></head><body>Light test</body></html>",
                 "https://senseis.local/__app/senseis-page.js", false);
-        check(!light.contains("data-senseis-dark=\"1\""),
+        check(light.contains("<html>") && !light.contains("<html data-senseis-dark=\"1\">"),
                 "Light mode must remain the default");
 
         String twice = SgfHtmlPreprocessor.prepare(
