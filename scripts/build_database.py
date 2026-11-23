@@ -29,7 +29,7 @@ HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
 SCHEMA_VERSION = 3
 MAX_IMAGE_BYTES = 500 * 1024
-PNGQUANT_COLORS = 8
+PNGQUANT_COLORS = 8  # lossy palette target requested for Sensei's diagrams
 PNGQUANT_BATCH_SIZE = 128
 
 
