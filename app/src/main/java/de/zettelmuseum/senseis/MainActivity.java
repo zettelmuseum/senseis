@@ -20,9 +20,11 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -43,10 +45,13 @@ import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.CRC32;
 import java.util.zip.InflaterInputStream;
 
@@ -70,6 +75,7 @@ public class MainActivity extends Activity {
     private String pendingSgfPath;
     private volatile boolean darkMode;
     private Button themeButton;
+    private Button favoriteButton;
 
     private static final class Entry {
         final String path;
@@ -106,7 +112,8 @@ public class MainActivity extends Activity {
         addToolButton(toolbar, "Back", new View.OnClickListener() { @Override public void onClick(View v) { if (webView != null && webView.canGoBack()) webView.goBack(); } });
         addToolButton(toolbar, "Forward", new View.OnClickListener() { @Override public void onClick(View v) { if (webView != null && webView.canGoForward()) webView.goForward(); } });
         addToolButton(toolbar, "Search", new View.OnClickListener() { @Override public void onClick(View v) { showSearchDialog(); } });
-        addToolButton(toolbar, "File", new View.OnClickListener() { @Override public void onClick(View v) { chooseArchive(); } });
+        addToolButton(toolbar, "More", new View.OnClickListener() { @Override public void onClick(View v) { showAppMenu(); } });
+        favoriteButton = addToolButton(toolbar, "☆", new View.OnClickListener() { @Override public void onClick(View v) { toggleCurrentFavorite(); } });
         themeButton = addToolButton(toolbar, darkMode ? "Light" : "Dark", new View.OnClickListener() { @Override public void onClick(View v) { toggleDarkMode(); } });
         status = new TextView(this);
         status.setTextColor(Color.DKGRAY); status.setTextSize(12); status.setPadding(dp(10), dp(2), dp(10), dp(2));
@@ -180,8 +187,11 @@ public class MainActivity extends Activity {
             }
             @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap icon) {
                 status.setText(url.replace(BASE_URL, "")); status.setVisibility(View.VISIBLE);
+                updateFavoriteButton();
             }
-            @Override public void onPageFinished(WebView v, String url) { status.setText(url.replace(BASE_URL, "")); }
+            @Override public void onPageFinished(WebView v, String url) {
+                status.setText(url.replace(BASE_URL, "")); updateFavoriteButton();
+            }
         });
         root.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1f));
         status.setVisibility(View.VISIBLE); loadHome();
@@ -452,7 +462,106 @@ public class MainActivity extends Activity {
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 
-    private void loadHome() { if (webView != null && entries != null) webView.loadUrl(BASE_URL); }
+    private void loadHome() {
+        if (webView != null && entries != null) webView.loadUrl(BASE_URL + "startingpoints.html");
+    }
+
+    private String currentPagePath() {
+        if (webView == null || entries == null) return null;
+        String current = webView.getUrl();
+        if (current == null || !current.startsWith(BASE_URL)) return null;
+        Uri uri = Uri.parse(current);
+        String path = normalizePath(decodePath(uri.getEncodedPath()));
+        if (path == null || path.length() == 0) path = "startingpoints.html";
+        Entry entry = findEntry(path);
+        if (entry == null && !path.startsWith("snapshot/")) entry = findEntry("snapshot/" + path);
+        if (entry == null) {
+            String alias = findAlias(path);
+            if (alias != null) entry = findEntry(alias);
+        }
+        return entry != null && entry.isHtml() ? entry.path : null;
+    }
+
+    private void updateFavoriteButton() {
+        if (favoriteButton == null) return;
+        String path = currentPagePath();
+        Set<String> saved = getPreferences(MODE_PRIVATE).getStringSet("favorites", new HashSet<String>());
+        favoriteButton.setText(path != null && saved.contains(path) ? "★" : "☆");
+        favoriteButton.setEnabled(path != null);
+    }
+
+    private void toggleCurrentFavorite() {
+        String path = currentPagePath();
+        if (path == null) {
+            Toast.makeText(this, "No wiki page to bookmark", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Set<String> saved = new HashSet<String>(getPreferences(MODE_PRIVATE)
+                .getStringSet("favorites", new HashSet<String>()));
+        if (saved.contains(path)) {
+            saved.remove(path);
+            Toast.makeText(this, "Removed from favorites", Toast.LENGTH_SHORT).show();
+        } else {
+            saved.add(path);
+            Toast.makeText(this, "Added to favorites", Toast.LENGTH_SHORT).show();
+        }
+        getPreferences(MODE_PRIVATE).edit().putStringSet("favorites", saved).apply();
+        updateFavoriteButton();
+    }
+
+    private void showAppMenu() {
+        new AlertDialog.Builder(this).setTitle("Sensei's Library")
+                .setItems(new String[]{"Favorites", "Import archive"}, new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        if (which == 0) showFavorites();
+                        else chooseArchive();
+                    }
+                }).show();
+    }
+
+    private void showFavorites() {
+        final List<String> paths = new ArrayList<String>(getPreferences(MODE_PRIVATE)
+                .getStringSet("favorites", new HashSet<String>()));
+        Collections.sort(paths, String.CASE_INSENSITIVE_ORDER);
+        if (paths.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Favorites")
+                    .setMessage("No favorites yet. Open a wiki page and tap ☆ to add it.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        final ListView list = new ListView(this);
+        final List<String> labels = new ArrayList<String>();
+        for (String path : paths) {
+            String name = path.substring(path.lastIndexOf('/') + 1)
+                    .replaceFirst("(?i)\\.(html?|xhtml|shtml)$", "").replace('_', ' ');
+            labels.add(name + (path.indexOf('/') >= 0 ? "\n" + path : ""));
+        }
+        list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, labels));
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Favorites — tap to open, long-press to remove")
+                .setView(list).setNegativeButton("Close", null).create();
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            String selected = paths.get(position);
+            webView.loadUrl(BASE_URL + Uri.encode(selected, "/!    private void loadHome() { if (webView != null && entries != null) webView.loadUrl(BASE_URL); }
+
+    private void showSearchDialog() {'()*+,;=:@-._~"));
+            dialog.dismiss();
+        });
+        list.setOnItemLongClickListener((parent, view, position, id) -> {
+            String removed = paths.remove(position);
+            labels.remove(position);
+            Set<String> saved = new HashSet<String>(getPreferences(MODE_PRIVATE)
+                    .getStringSet("favorites", new HashSet<String>()));
+            saved.remove(removed);
+            getPreferences(MODE_PRIVATE).edit().putStringSet("favorites", saved).apply();
+            ((ArrayAdapter<String>) list.getAdapter()).notifyDataSetChanged();
+            updateFavoriteButton();
+            Toast.makeText(this, "Favorite removed", Toast.LENGTH_SHORT).show();
+            if (paths.isEmpty()) dialog.dismiss();
+            return true;
+        });
+        dialog.show();
+    }
 
     private void showSearchDialog() {
         if (entries == null) { Toast.makeText(this, "Import the library archive first", Toast.LENGTH_SHORT).show(); return; }
