@@ -118,7 +118,7 @@ jobs:
           python scripts/build_library.py \
             --archive build/senseis-library.tar.bz2 \
             --output dist/senseis.slb \
-            --summary build/database-summary.json \
+            --summary build/archive-summary.json \
             --sgf-compression-report build/sgf-compression.json
 
       - name: Set up Java
@@ -163,24 +163,24 @@ jobs:
           import json, os
           from pathlib import Path
           analysis = json.loads(Path('build/snapshot-analysis.json').read_text())
-          database = json.loads(Path('build/database-summary.json').read_text())
+          archive = json.loads(Path('build/archive-summary.json').read_text())
           sgf = json.loads(Path('build/sgf-compression.json').read_text())
           lines = [
               "## Sensei's Library offline Android build",
               "",
               f"- Snapshot archive: {Path('build/senseis-library.tar.bz2').stat().st_size:,} bytes",
               f"- Sample scan: {analysis['members_scanned']:,} archive members; {analysis['sampled_pages']:,} HTML pages extracted for analysis",
-              f"- Binary archive: {database['files']:,} files; {database['pages']:,} wiki pages; {database['sgf_files']:,} SGF files",
+              f"- Binary archive: {archive['files']:,} files; {database['pages']:,} wiki pages; {database['sgf_files']:,} SGF files",
               f"- Archive size: {database['archive_bytes']:,} bytes",
               f"- Compressed directory: {database['directory_compressed_bytes']:,} bytes ({database['directory_entries']:,} entries)",
               "- Alias table: removed; aliases are resolved from file paths on demand",
               f"- Archive format: {database['format']} v{database['format_version']}",
               f"- Images removed (>500 KiB): {database['images_removed']:,} ({database['image_bytes_removed']:,} source bytes)",
-              f"- Diagram PNGs skipped before database insertion: {database['diagram_pngs_skipped']:,} ({database['diagram_png_bytes_skipped']:,} source bytes)",
+              f"- Diagram PNGs skipped before archiving: {database['diagram_pngs_skipped']:,} ({database['diagram_png_bytes_skipped']:,} source bytes)",
               f"- SGF compression sample: {sgf['samples']} files; zlib-6 saves {sgf['zlib6_saving_percent']}%; {sgf['zlib6_mib_per_second']} MiB/s",
               f"- SGF compression enabled: {'yes' if database['sgf_compression_enabled'] else 'no'}",
               "- Search indexing: none; the Android app scans page contents directly",
-              f"- Database build time: {database['seconds']} seconds",
+              f"- Archive build time: {database['seconds']} seconds",
               f"- Android APK: {Path('app/build/SenseisLibrary.apk').stat().st_size:,} bytes",
               "",
               "Download both artifacts: install the APK, then open the app and import `senseis.slb` using the Android file picker.",
@@ -212,7 +212,7 @@ jobs:
           name: senseis-snapshot-analysis
           path: |
             build/snapshot-analysis.json
-            build/database-summary.json
+            build/archive-summary.json
             build/sgf-compression.json
           if-no-files-found: error
           retention-days: 30
