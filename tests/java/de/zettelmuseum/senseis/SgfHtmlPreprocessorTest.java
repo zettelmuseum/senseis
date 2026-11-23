@@ -40,6 +40,9 @@ public final class SgfHtmlPreprocessorTest {
                 "Dark mode must be enabled before WebView parses the page");
         check(dark.contains("senseis-theme-style") && dark.contains("background:#17191c"),
                 "Dark mode stylesheet is missing");
+        check(dark.contains("background-color:transparent!important")
+                        && dark.contains("color:#e5e5e5!important"),
+                "Dark mode must override legacy inline colors and backgrounds");
         String light = SgfHtmlPreprocessor.prepare(
                 "<html><head></head><body>Light test</body></html>",
                 "https://senseis.local/__app/senseis-page.js", false);
