@@ -181,8 +181,11 @@ function enforceDarkPage() {
         var tag = node.tagName;
         if (/^(IMG|SVG|CANVAS|VIDEO|IFRAME)$/i.test(tag)) return;
         node.removeAttribute("bgcolor");
+        node.removeAttribute("background");
         node.style.removeProperty("background");
         node.style.removeProperty("background-color");
+        node.style.removeProperty("background-image");
+        node.style.removeProperty("background-repeat");
         if (node === document.documentElement || node === document.body) {
             node.style.setProperty("background-color", "#17191c", "important");
         } else {
@@ -224,8 +227,9 @@ function enhance() {
         ".besogo-panels{max-width:100%}.besogo-comment{max-height:180px;overflow:auto}";
     if (document.documentElement.getAttribute("data-senseis-dark") === "1") {
         style.textContent +=
-            "html,html body{background:#17191c!important;color:#e5e5e5!important;color-scheme:dark}" +
-            "html body *:not(img):not(svg):not(canvas):not(video):not(iframe){color:#e5e5e5!important;background-color:transparent!important;border-color:#555!important}" +
+            "html,html body{background-color:#17191c!important;background-image:none!important;color:#e5e5e5!important;color-scheme:dark}" +
+            "html body *:not(img):not(svg):not(canvas):not(video):not(iframe){color:#e5e5e5!important;background-color:transparent!important;background-image:none!important;background-repeat:no-repeat!important;border-color:#555!important}" +
+            "html body *:before,html body *:after{background-color:transparent!important;background-image:none!important}" +
             "html body a,html body a *{color:#8ab4f8!important}" +
             "html body a:visited,html body a:visited *{color:#c6a5e8!important}" +
             "html body h1,html body h2,html body h3,html body h4,html body h5,html body h6{color:#f0f0f0!important}" +
