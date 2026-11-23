@@ -76,7 +76,7 @@ def main() -> None:
     args = parser.parse_args()
     result = benchmark(args.archive, max(1, args.limit))
     args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(result, indent=2) + "\\n", encoding="utf-8")
+    args.report.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2), flush=True)
 
 
