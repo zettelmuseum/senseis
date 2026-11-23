@@ -1,6 +1,8 @@
 (function(){
 "use strict";
 var LOCAL="https://senseis.local/";
+var active=null;
+var besogoPromise=null;
 function localUrl(raw,base){
  try{
   if(raw.charAt(0)==="?")return LOCAL+raw;
@@ -21,6 +23,77 @@ function mapInternalUrls(){
  });
  document.querySelectorAll("base").forEach(function(b){b.remove();});
 }
+function loadBesogo(){
+ if(besogoPromise)return besogoPromise;
+ besogoPromise=new Promise(function(resolve,reject){
+  var css=document.createElement("link");
+  css.rel="stylesheet";css.href=LOCAL+"__app/besogo.css";document.head.appendChild(css);
+  var theme=document.createElement("link");
+  theme.rel="stylesheet";theme.href=LOCAL+"__app/board-sensei.css";document.head.appendChild(theme);
+  var script=document.createElement("script");
+  script.src=LOCAL+"__app/besogo.all.js";
+  script.onload=resolve;
+  script.onerror=function(){reject(new Error("BesoGo could not be loaded"));};
+  document.head.appendChild(script);
+ });
+ return besogoPromise;
+}
+function restoreActive(){
+ if(!active)return;
+ var old=active;
+ active=null;
+ if(old.panel.parentNode){
+  old.panel.replaceWith(old.image);
+  bindDiagram(old.image,old.sgfUrl);
+ }
+ old.panel=null;
+ old.image=null;
+}
+function bindDiagram(img,sgfUrl){
+ if(img.__senseisBound)return;
+ img.__senseisBound=true;
+ img.style.cursor="pointer";
+ img.title="Tap to open interactive Go diagram";
+ img.addEventListener("click",function(event){
+  event.preventDefault();event.stopPropagation();
+  restoreActive();
+  var original=img.cloneNode(true);
+  original.__senseisBound=false;
+  var panel=document.createElement("div");
+  panel.style.cssText="position:relative;margin:12px auto;max-width:100%;";
+  var close=document.createElement("button");
+  close.type="button";close.textContent="Close diagram";
+  close.setAttribute("aria-label","Close interactive diagram");
+  close.style.cssText="display:block;margin:0 0 8px auto;padding:6px 12px;font-size:14px;";
+  close.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();restoreActive();});
+  var board=document.createElement("div");
+  board.className="besogo-viewer";
+  board.setAttribute("aria-label",img.alt||"Go diagram");
+  panel.appendChild(close);panel.appendChild(board);
+  img.replaceWith(panel);
+  active={panel:panel,image:original,sgfUrl:sgfUrl};
+  board.textContent="Loading diagram…";
+  loadBesogo().then(function(){
+   if(!active||active.panel!==panel)return;
+   return fetch(sgfUrl,{credentials:"same-origin"}).then(function(r){
+    if(!r.ok)throw new Error("SGF not found");
+    return r.text();
+   }).then(function(sgf){
+    if(!active||active.panel!==panel)return;
+    if(!/\(\s*;/.test(sgf))throw new Error("Invalid SGF");
+    board.textContent=sgf;
+    window.besogo.create(board,{
+     panels:["control","comment"],tool:"navOnly",orient:"portrait",
+     maxwidth:640,nowheel:true,nokeys:true,resize:"auto"
+    });
+   });
+  }).catch(function(){
+   if(!active||active.panel!==panel)return;
+   board.className="senseis-sgf-error";
+   board.textContent="SGF diagram unavailable";
+  });
+ },false);
+}
 function enhance(){
  var style=document.createElement("style");
  style.textContent="body{max-width:100%;margin:0 auto;padding:12px;line-height:1.45;overflow-wrap:anywhere}img,video,svg{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse;display:block;overflow-x:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{overflow-wrap:anywhere}.besogo-container{max-width:100%;margin:14px auto!important}.besogo-panels{max-width:100%}.besogo-comment{max-height:180px;overflow:auto}.senseis-sgf-error{padding:12px;color:#8b1b1b;background:#fff0f0}";
@@ -28,46 +101,12 @@ function enhance(){
  mapInternalUrls();
  Array.prototype.slice.call(document.querySelectorAll("img[src]")).forEach(function(img){
   var u;try{u=new URL(img.getAttribute("src"),document.baseURI);}catch(e){return;}
-  if(!/(^|\/)[0-9a-f]{32}\.png$/i.test(u.pathname))return;
-  var sgfUrl=LOCAL+u.pathname.replace(/\.png$/i,".sgf");
+  if(!/(^|\/) [0-9a-f]{32}\.png$/i.test(u.pathname.replace(/ /g,"")))return;
   var anchor=img.closest?img.closest("a"):null;
   if(anchor){anchor.removeAttribute("href");anchor.removeAttribute("target");anchor.removeAttribute("download");anchor.removeAttribute("onclick");anchor.title="Go diagram";anchor.style.cursor="default";}
-  var viewer=document.createElement("div");
-  viewer.className="besogo-viewer";
-  viewer.setAttribute("panels","control+comment");
-  viewer.setAttribute("maxwidth","640");
-  viewer.setAttribute("orient","portrait");
-  viewer.setAttribute("nowheel","true");
-  viewer.setAttribute("nokeys","true");
-  viewer.setAttribute("aria-label",img.alt||"Go diagram");
-  img.replaceWith(viewer);
-  fetch(sgfUrl,{credentials:"same-origin"}).then(function(r){
-   if(!r.ok)throw new Error("SGF not found");
-   return r.text();
-  }).then(function(sgf){
-   if(!/\(\s*;/.test(sgf))throw new Error("Invalid SGF");
-   viewer.textContent=sgf;
-   window.besogo.create(viewer,{
-    panels:["control","comment"],tool:"navOnly",orient:"portrait",
-    maxwidth:640,nowheel:true,nokeys:true,resize:"auto"
-   });
-  }).catch(function(){
-   viewer.className="senseis-sgf-error";
-   viewer.textContent="SGF diagram unavailable";
-  });
+  bindDiagram(img,LOCAL+u.pathname.replace(/\.png$/i,".sgf"));
  });
 }
-function loadBesogo(){
- var css=document.createElement("link");
- css.rel="stylesheet";css.href=LOCAL+"__app/besogo.css";document.head.appendChild(css);
- var theme=document.createElement("link");
- theme.rel="stylesheet";theme.href=LOCAL+"__app/board-sensei.css";document.head.appendChild(theme);
- var script=document.createElement("script");
- script.src=LOCAL+"__app/besogo.all.js";
- script.onload=enhance;
- script.onerror=function(){document.body.insertAdjacentText("afterbegin","BesoGo viewer could not be loaded.");};
- document.head.appendChild(script);
-}
-if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",loadBesogo);
-else loadBesogo();
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",enhance);
+else enhance();
 })();
