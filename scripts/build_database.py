@@ -196,6 +196,11 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
     if temporary.exists():
         temporary.unlink()
     conn = sqlite3.connect(str(temporary))
+    # Disposable build database: avoid journal/fsync overhead during bulk loading.
+    conn.execute("PRAGMA journal_mode=OFF")
+    conn.execute("PRAGMA synchronous=OFF")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA cache_size=-65536")
     started = time.time()
     counters: Counter[str] = Counter()
     compress_sgf = False
@@ -252,7 +257,6 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
                 counters["sgf_files"] += int(path.lower().endswith(".sgf"))
                 if len(file_batch) >= 1000:
                     conn.executemany(insert_sql, file_batch)
-                    conn.commit()
                     file_batch.clear()
                     print(f"Stored {counters['files']:,} files ({counters['bytes_original'] / (1024**2):,.1f} MiB uncompressed)", flush=True)
         if file_batch:
@@ -275,7 +279,6 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
             if len(page_batch) >= 1000:
                 conn.executemany("INSERT OR REPLACE INTO pages(path,title) VALUES(?,?)", page_batch)
                 conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", html_alias_batch)
-                conn.commit()
                 page_batch.clear()
                 html_alias_batch.clear()
                 print(f"Registered {index:,}/{html_count:,} HTML pages", flush=True)
@@ -291,11 +294,10 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
         attachment_cursor = conn.execute("SELECT path,name FROM files WHERE is_html=0 ORDER BY path")
         for index, (path, name) in enumerate(attachment_cursor, 1):
             attachment_alias_batch.extend(alias_rows(path, name))
-            if len(attachment_alias_batch) >= 3000:
+            if len(attachment_alias_batch) >= 20000:
                 conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", attachment_alias_batch)
-                conn.commit()
                 attachment_alias_batch.clear()
-                print(f"Registered aliases for {index:,}/{attachment_count:,} attachments", flush=True)
+                print(f"Registered attachment aliases for {index:,}/{attachment_count:,} files", flush=True)
         if attachment_alias_batch:
             conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", attachment_alias_batch)
         conn.commit()
