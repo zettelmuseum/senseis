@@ -29,8 +29,8 @@ class DiagramMappingTests(unittest.TestCase):
                 b"<html><body><a href='games/game.sgf'><img src='images/diagram.png'></a></body></html>",
             )
             report = analyze_archive(archive)
-        self.assertTrue(report["all_pngs_have_strong_unique_sgf_mapping"])
-        self.assertEqual(report["strong_unique_one_to_one_pairs"], 1)
+        self.assertTrue(report["all_pngs_have_matching_sgf"])
+        self.assertEqual(report["png_sgf_pairs"], 1)
 
     def test_multiple_images_on_page_are_not_guessed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -39,8 +39,8 @@ class DiagramMappingTests(unittest.TestCase):
                 b"<html><body><img src='images/diagram.png'><img src='images/diagram.png'><a href='games/game.sgf'>SGF</a></body></html>",
             )
             report = analyze_archive(archive)
-        self.assertEqual(report["strong_unique_one_to_one_pairs"], 0)
-        self.assertEqual(report["pngs_with_only_weak_same_page_evidence"], 1)
+        self.assertEqual(report["png_sgf_pairs"], 0)
+        self.assertEqual(report["png_files_without_matching_sgf"], 1)
 
 
 if __name__ == "__main__":
