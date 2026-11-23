@@ -266,6 +266,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
         # Add attachment aliases only after page aliases, preserving the original
         # precedence when a file name collides with a wiki page alias.
         attachment_alias_batch: list[tuple[str, str]] = []
+        attachment_count = int(conn.execute("SELECT COUNT(*) FROM files WHERE is_html=0").fetchone()[0])
         attachment_cursor = conn.execute("SELECT path,name FROM files WHERE is_html=0 ORDER BY path")
         for index, (path, name) in enumerate(attachment_cursor, 1):
             attachment_alias_batch.extend(alias_rows(path, name))
@@ -273,6 +274,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
                 conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", attachment_alias_batch)
                 conn.commit()
                 attachment_alias_batch.clear()
+                print(f"Registered aliases for {index:,}/{attachment_count:,} attachments", flush=True)
         if attachment_alias_batch:
             conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", attachment_alias_batch)
         conn.commit()
