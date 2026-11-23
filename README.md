@@ -41,3 +41,7 @@ The workflow runs synthetic archive tests, then scans at most the first 15,000 a
 ## Android app
 
 The app is a small Java-only WebView application built directly with Android SDK command-line tools (no Gradle project). The WebView serves HTML and attachments from the local `https://senseis.local/` origin; requests to other network hosts are blocked. The app includes title/text search, home/back/forward navigation, archive import and SGF export through Android's Storage Access Framework.
+
+## SGF diagrams
+
+Embedded diagram PNGs whose names are 32-character hexadecimal IDs are replaced at runtime by the offline [BesoGo](https://github.com/yewang/besogo) viewer. The matching SGF file is loaded from the same archive path; no remote request is made. Diagram links are disabled, so tapping a board navigates the SGF viewer and never downloads the SGF. BesoGo source and its MIT license are bundled under `app/src/main/assets/besogo/`; the Sensei board theme is used without optional third-party texture images.

@@ -201,8 +201,9 @@ public class MainActivity extends Activity {
             if ("data".equalsIgnoreCase(scheme) || "blob".equalsIgnoreCase(scheme)) return null;
             return response("text/plain", "utf-8", new byte[0], 403, "Blocked");
         }
-        if (entries == null) return response("text/plain", "utf-8", "Archive not loaded".getBytes(), 503, "Unavailable");
         String path = decodePath(uri.getEncodedPath());
+        if (local && path.startsWith("/__app/")) return openBundledAsset(path.substring(7));
+        if (entries == null) return response("text/plain", "utf-8", "Archive not loaded".getBytes(), 503, "Unavailable");
         if (path.length() == 0 || "/".equals(path)) {
             String q = uri.getEncodedQuery();
             if (q != null && q.length() > 0) { path = findQueryPage(q); if (path == null) return missingPage(q); }
@@ -211,6 +212,7 @@ public class MainActivity extends Activity {
         path = normalizePath(path);
         if (path == null) return response("text/plain", "utf-8", new byte[0], 400, "Bad path");
         Entry e = findEntry(path);
+        if (e == null && !path.startsWith("snapshot/")) e = findEntry("snapshot/" + path);
         if (e == null) {
             String alias = findAlias(path);
             if (alias != null) e = findEntry(alias);
@@ -223,6 +225,25 @@ public class MainActivity extends Activity {
         headers.put("Cache-Control", "no-store"); headers.put("X-Content-Type-Options", "nosniff");
         try { return new WebResourceResponse(mime, charset, 200, "OK", headers, openPayloadStream(e)); }
         catch (Exception ex) { return response("text/plain", "utf-8", ("Unable to read local file: " + ex.getMessage()).getBytes(), 500, "Archive error"); }
+    }
+
+    private WebResourceResponse openBundledAsset(String path) {
+        if (path.length() == 0 || path.startsWith("/") || path.contains("..") || path.indexOf('\\') >= 0) {
+            return response("text/plain", "utf-8", new byte[0], 400, "Bad asset path");
+        }
+        String mime;
+        if (path.endsWith(".js")) mime = "application/javascript";
+        else if (path.endsWith(".css")) mime = "text/css";
+        else return response("text/plain", "utf-8", new byte[0], 404, "Not Found");
+        try {
+            InputStream in = getAssets().open("besogo/" + path);
+            Map<String, String> headers = new HashMap<String, String>();
+            headers.put("Cache-Control", "public, max-age=31536000");
+            headers.put("X-Content-Type-Options", "nosniff");
+            return new WebResourceResponse(mime, "utf-8", 200, "OK", headers, in);
+        } catch (IOException e) {
+            return response("text/plain", "utf-8", new byte[0], 404, "Not Found");
+        }
     }
 
     private Entry findEntry(String path) {
