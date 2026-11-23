@@ -75,7 +75,6 @@ public class MainActivity extends Activity {
     private String pendingSgfPath;
     private volatile boolean darkMode;
     private Button themeButton;
-    private Button favoriteButton;
 
     private static final class Entry {
         final String path;
@@ -113,7 +112,7 @@ public class MainActivity extends Activity {
         addToolButton(toolbar, "Forward", new View.OnClickListener() { @Override public void onClick(View v) { if (webView != null && webView.canGoForward()) webView.goForward(); } });
         addToolButton(toolbar, "Search", new View.OnClickListener() { @Override public void onClick(View v) { showSearchDialog(); } });
         addToolButton(toolbar, "More", new View.OnClickListener() { @Override public void onClick(View v) { showAppMenu(); } });
-        favoriteButton = addToolButton(toolbar, "☆", new View.OnClickListener() { @Override public void onClick(View v) { toggleCurrentFavorite(); } });
+        addToolButton(toolbar, "☆", new View.OnClickListener() { @Override public void onClick(View v) { toggleCurrentFavorite(); } });
         themeButton = addToolButton(toolbar, darkMode ? "Light" : "Dark", new View.OnClickListener() { @Override public void onClick(View v) { toggleDarkMode(); } });
         status = new TextView(this);
         status.setTextColor(Color.DKGRAY); status.setTextSize(12); status.setPadding(dp(10), dp(2), dp(10), dp(2));
@@ -187,11 +186,8 @@ public class MainActivity extends Activity {
             }
             @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap icon) {
                 status.setText(url.replace(BASE_URL, "")); status.setVisibility(View.VISIBLE);
-                updateFavoriteButton();
             }
-            @Override public void onPageFinished(WebView v, String url) {
-                status.setText(url.replace(BASE_URL, "")); updateFavoriteButton();
-            }
+            @Override public void onPageFinished(WebView v, String url) { status.setText(url.replace(BASE_URL, "")); }
         });
         root.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1f));
         status.setVisibility(View.VISIBLE); loadHome();
@@ -466,45 +462,51 @@ public class MainActivity extends Activity {
         if (webView != null && entries != null) webView.loadUrl(BASE_URL + "startingpoints.html");
     }
 
-    private String currentPagePath() {
-        if (webView == null || entries == null) return null;
+    // Store the URL exactly as WebView sees it. Do not resolve aliases or scan
+    // the archive here: this method is only called after an explicit user action.
+    private String currentFavoriteTarget() {
+        if (webView == null) return null;
         String current = webView.getUrl();
-        if (current == null || !current.startsWith(BASE_URL)) return null;
+        if (current == null) return null;
         Uri uri = Uri.parse(current);
-        String path = normalizePath(decodePath(uri.getEncodedPath()));
-        if (path == null || path.length() == 0) path = "startingpoints.html";
-        Entry entry = findEntry(path);
-        if (entry == null && !path.startsWith("snapshot/")) entry = findEntry("snapshot/" + path);
-        // Do not resolve aliases here: this method runs on the UI thread from
-        // WebView page callbacks. Alias resolution scans the full archive directory.
-        return entry != null && entry.isHtml() ? entry.path : null;
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || !LOCAL_HOST.equalsIgnoreCase(uri.getHost())) return null;
+
+        String path = uri.getEncodedPath();
+        String query = uri.getEncodedQuery();
+        String fragment = uri.getEncodedFragment();
+        boolean rootPath = path == null || path.length() == 0 || "/".equals(path);
+
+        StringBuilder target = new StringBuilder();
+        if (rootPath) {
+            if (query == null || query.length() == 0) target.append("startingpoints.html");
+        } else {
+            target.append(path.startsWith("/") ? path.substring(1) : path);
+        }
+        if (query != null && query.length() > 0) target.append('?').append(query);
+        if (fragment != null && fragment.length() > 0) target.append('#').append(fragment);
+        return target.length() == 0 ? null : target.toString();
     }
 
-    private void updateFavoriteButton() {
-        if (favoriteButton == null) return;
-        String path = currentPagePath();
-        Set<String> saved = getPreferences(MODE_PRIVATE).getStringSet("favorites", new HashSet<String>());
-        favoriteButton.setText(path != null && saved.contains(path) ? "★" : "☆");
-        favoriteButton.setEnabled(path != null);
+    private Set<String> readFavorites() {
+        Set<String> stored = getPreferences(MODE_PRIVATE).getStringSet("favorites", new HashSet<String>());
+        return new HashSet<String>(stored);
     }
 
     private void toggleCurrentFavorite() {
-        String path = currentPagePath();
-        if (path == null) {
-            Toast.makeText(this, "No wiki page to bookmark", Toast.LENGTH_SHORT).show();
+        String target = currentFavoriteTarget();
+        if (target == null) {
+            Toast.makeText(this, "No local page to bookmark", Toast.LENGTH_SHORT).show();
             return;
         }
-        Set<String> saved = new HashSet<String>(getPreferences(MODE_PRIVATE)
-                .getStringSet("favorites", new HashSet<String>()));
-        if (saved.contains(path)) {
-            saved.remove(path);
+        Set<String> favorites = readFavorites();
+        if (favorites.contains(target)) {
+            favorites.remove(target);
             Toast.makeText(this, "Removed from favorites", Toast.LENGTH_SHORT).show();
         } else {
-            saved.add(path);
+            favorites.add(target);
             Toast.makeText(this, "Added to favorites", Toast.LENGTH_SHORT).show();
         }
-        getPreferences(MODE_PRIVATE).edit().putStringSet("favorites", saved).apply();
-        updateFavoriteButton();
+        getPreferences(MODE_PRIVATE).edit().putStringSet("favorites", favorites).apply();
     }
 
     private void showAppMenu() {
@@ -518,30 +520,39 @@ public class MainActivity extends Activity {
     }
 
     private void showFavorites() {
-        final List<String> paths = new ArrayList<String>(getPreferences(MODE_PRIVATE)
-                .getStringSet("favorites", new HashSet<String>()));
+        final List<String> paths = new ArrayList<String>(readFavorites());
         Collections.sort(paths, String.CASE_INSENSITIVE_ORDER);
         if (paths.isEmpty()) {
             new AlertDialog.Builder(this).setTitle("Favorites")
-                    .setMessage("No favorites yet. Open a wiki page and tap ☆ to add it.")
+                    .setMessage("No favorites yet. Open a page and tap ☆ to add it.")
                     .setPositiveButton("OK", null).show();
             return;
         }
-        final ListView list = new ListView(this);
+
         final List<String> labels = new ArrayList<String>();
-        for (String path : paths) {
-            String name = path.substring(path.lastIndexOf('/') + 1)
-                    .replaceFirst("(?i)\\.(html?|xhtml|shtml)$", "").replace('_', ' ');
-            labels.add(name + (path.indexOf('/') >= 0 ? "\n" + path : ""));
+        for (String target : paths) {
+            String page = target;
+            int query = page.indexOf('?');
+            if (query >= 0) page = page.substring(0, query);
+            int fragment = page.indexOf('#');
+            if (fragment >= 0) page = page.substring(0, fragment);
+            String name = page.substring(page.lastIndexOf('/') + 1).replace('_', ' ');
+            if (name.length() == 0) name = target;
+            labels.add(name + "\n" + target);
         }
-        list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, labels));
+
+        final ListView list = new ListView(this);
+        final ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+                this, android.R.layout.simple_list_item_1, labels);
+        list.setAdapter(adapter);
         final AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Favorites — tap to open, long-press to remove")
                 .setView(list).setNegativeButton("Close", null).create();
+
         list.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
             @Override public void onItemClick(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 String selected = paths.get(position);
-                webView.loadUrl(BASE_URL + Uri.encode(selected, "/!$&'()*+,;=:@-._~"));
+                if (webView != null) webView.loadUrl(BASE_URL + selected);
                 dialog.dismiss();
             }
         });
@@ -549,12 +560,10 @@ public class MainActivity extends Activity {
             @Override public boolean onItemLongClick(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 String removed = paths.remove(position);
                 labels.remove(position);
-                Set<String> saved = new HashSet<String>(getPreferences(MODE_PRIVATE)
-                        .getStringSet("favorites", new HashSet<String>()));
-                saved.remove(removed);
-                getPreferences(MODE_PRIVATE).edit().putStringSet("favorites", saved).apply();
-                ((ArrayAdapter<String>) list.getAdapter()).notifyDataSetChanged();
-                updateFavoriteButton();
+                Set<String> favorites = readFavorites();
+                favorites.remove(removed);
+                getPreferences(MODE_PRIVATE).edit().putStringSet("favorites", favorites).apply();
+                adapter.notifyDataSetChanged();
                 Toast.makeText(MainActivity.this, "Favorite removed", Toast.LENGTH_SHORT).show();
                 if (paths.isEmpty()) dialog.dismiss();
                 return true;
