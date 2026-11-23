@@ -8,6 +8,7 @@ on:
       - 'app/**'
       - 'scripts/build_android.sh'
       - 'scripts/build_database.py'
+      - 'scripts/benchmark_sgf_compression.py'
       - 'scripts/analyze_snapshot.py'
       - 'requirements.txt'
       - '.github/workflows/build-android.yml'
@@ -105,12 +106,20 @@ jobs:
             --max-members 15000 \
             --max-pages 80
 
-      - name: Build complete SQLite library (streaming, no full extraction)
+      - name: Benchmark SGF compression on 500 real files
+        run: |
+          python scripts/benchmark_sgf_compression.py \
+            --archive build/senseis-library.tar.bz2 \
+            --limit 500 \
+            --report build/sgf-compression.json
+
+      - name: Build complete SQLite library (batched database writes)
         run: |
           python scripts/build_database.py \
             --archive build/senseis-library.tar.bz2 \
             --output dist/senseis.db \
-            --summary build/database-summary.json
+            --summary build/database-summary.json \
+            --sgf-compression-report build/sgf-compression.json
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -155,6 +164,7 @@ jobs:
           from pathlib import Path
           analysis = json.loads(Path('build/snapshot-analysis.json').read_text())
           database = json.loads(Path('build/database-summary.json').read_text())
+          sgf = json.loads(Path('build/sgf-compression.json').read_text())
           lines = [
               "## Sensei's Library offline Android build",
               "",
@@ -164,7 +174,9 @@ jobs:
               f"- Database size: {database['database_bytes']:,} bytes",
               f"- Database schema: {database.get('schema_version', 'unknown')}",
               f"- Images removed (>500 KiB): {database['images_removed']:,} ({database['image_bytes_removed']:,} source bytes)",
-              f"- Redundant diagram PNGs removed: {database['diagram_pngs_removed']:,} ({database['diagram_png_bytes_removed']:,} bytes)",
+              f"- Diagram PNGs skipped before database insertion: {database['diagram_pngs_skipped']:,} ({database['diagram_png_bytes_skipped']:,} source bytes)",
+              f"- SGF compression sample: {sgf['samples']} files; zlib-6 saves {sgf['zlib6_saving_percent']}%; {sgf['zlib6_mib_per_second']} MiB/s",
+              f"- SGF compression enabled: {'yes' if database['sgf_compression_enabled'] else 'no'}",
               "- Search indexing: none; the Android app scans page contents directly",
               f"- Database build time: {database['seconds']} seconds",
               f"- Android APK: {Path('app/build/SenseisLibrary.apk').stat().st_size:,} bytes",
@@ -199,6 +211,7 @@ jobs:
           path: |
             build/snapshot-analysis.json
             build/database-summary.json
+            build/sgf-compression.json
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
