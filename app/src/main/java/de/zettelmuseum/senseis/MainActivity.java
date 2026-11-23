@@ -540,25 +540,27 @@ public class MainActivity extends Activity {
         final AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Favorites — tap to open, long-press to remove")
                 .setView(list).setNegativeButton("Close", null).create();
-        list.setOnItemClickListener((parent, view, position, id) -> {
-            String selected = paths.get(position);
-            webView.loadUrl(BASE_URL + Uri.encode(selected, "/!    private void loadHome() { if (webView != null && entries != null) webView.loadUrl(BASE_URL); }
-
-    private void showSearchDialog() {'()*+,;=:@-._~"));
-            dialog.dismiss();
+        list.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
+            @Override public void onItemClick(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                String selected = paths.get(position);
+                webView.loadUrl(BASE_URL + Uri.encode(selected, "/!$&'()*+,;=:@-._~"));
+                dialog.dismiss();
+            }
         });
-        list.setOnItemLongClickListener((parent, view, position, id) -> {
-            String removed = paths.remove(position);
-            labels.remove(position);
-            Set<String> saved = new HashSet<String>(getPreferences(MODE_PRIVATE)
-                    .getStringSet("favorites", new HashSet<String>()));
-            saved.remove(removed);
-            getPreferences(MODE_PRIVATE).edit().putStringSet("favorites", saved).apply();
-            ((ArrayAdapter<String>) list.getAdapter()).notifyDataSetChanged();
-            updateFavoriteButton();
-            Toast.makeText(this, "Favorite removed", Toast.LENGTH_SHORT).show();
-            if (paths.isEmpty()) dialog.dismiss();
-            return true;
+        list.setOnItemLongClickListener(new android.widget.AdapterView.OnItemLongClickListener() {
+            @Override public boolean onItemLongClick(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                String removed = paths.remove(position);
+                labels.remove(position);
+                Set<String> saved = new HashSet<String>(getPreferences(MODE_PRIVATE)
+                        .getStringSet("favorites", new HashSet<String>()));
+                saved.remove(removed);
+                getPreferences(MODE_PRIVATE).edit().putStringSet("favorites", saved).apply();
+                ((ArrayAdapter<String>) list.getAdapter()).notifyDataSetChanged();
+                updateFavoriteButton();
+                Toast.makeText(MainActivity.this, "Favorite removed", Toast.LENGTH_SHORT).show();
+                if (paths.isEmpty()) dialog.dismiss();
+                return true;
+            }
         });
         dialog.show();
     }
