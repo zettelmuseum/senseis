@@ -32,7 +32,7 @@ MAX_IMAGE_BYTES = 500 * 1024
 PNGQUANT_COLORS = 64
 PNGQUANT_QUALITY = "65-85"
 PNGQUANT_SPEED = 8
-PNGQUANT_BATCH_SIZE = 256
+PNGQUANT_BATCH_SIZE = 128
 
 
 def safe_tar_path(name: str) -> str | None:
@@ -81,8 +81,9 @@ def optimize_pngs_with_pngquant(
     records: list[tuple[str, Path, int]],
     counters: Counter[str],
 ) -> None:
-    """Lossily quantize staged PNGs in batches; keep each original unless smaller."""
+    """Lossily quantize staged PNGs in batches and report live progress."""
     if not records:
+        print("pngquant: no PNG files to optimize", flush=True)
         return
     executable = shutil.which("pngquant")
     if not executable:
@@ -91,10 +92,20 @@ def optimize_pngs_with_pngquant(
         [executable, "--version"], check=True, capture_output=True, text=True
     ).stdout.strip()
     counters["png_optimizer_version"] = version
-    counters["png_files_seen"] += len(records)
+    total = len(records)
+    counters["png_files_seen"] += total
     counters["png_bytes_before"] += sum(original_size for _, _, original_size in records)
+    started = time.monotonic()
+    batch_count = (total + PNGQUANT_BATCH_SIZE - 1) // PNGQUANT_BATCH_SIZE
+    print(
+        f"pngquant: starting {total:,} PNG files with {version}; "
+        f"{PNGQUANT_COLORS} colors, quality {PNGQUANT_QUALITY}, speed {PNGQUANT_SPEED}; "
+        f"{batch_count:,} batches of up to {PNGQUANT_BATCH_SIZE}",
+        flush=True,
+    )
 
-    for offset in range(0, len(records), PNGQUANT_BATCH_SIZE):
+    for batch_index, offset in enumerate(range(0, total, PNGQUANT_BATCH_SIZE), 1):
+        batch_started = time.monotonic()
         batch = records[offset:offset + PNGQUANT_BATCH_SIZE]
         command = [
             executable,
@@ -112,7 +123,7 @@ def optimize_pngs_with_pngquant(
             counters["pngquant_batch_warnings"] += 1
             detail = (completed.stderr or completed.stdout).strip()
             print(
-                f"WARNING: pngquant batch {offset // PNGQUANT_BATCH_SIZE + 1} "
+                f"WARNING: pngquant batch {batch_index}/{batch_count} "
                 f"returned {completed.returncode}: {detail[:500]}",
                 flush=True,
             )
@@ -142,13 +153,30 @@ def optimize_pngs_with_pngquant(
                 counters["png_not_smaller"] += 1
                 counters["png_bytes_after"] += original_size
         conn.commit()
-        completed_files = min(offset + len(batch), len(records))
-        if completed_files == len(records) or completed_files % 5000 == 0:
-            print(
-                f"pngquant processed {completed_files:,}/{len(records):,} PNG files; "
-                f"saved {counters['png_bytes_saved']:,} bytes so far",
-                flush=True,
-            )
+
+        completed_files = min(offset + len(batch), total)
+        elapsed = time.monotonic() - started
+        batch_seconds = time.monotonic() - batch_started
+        rate = completed_files / elapsed if elapsed > 0 else 0.0
+        eta_seconds = (total - completed_files) / rate if rate > 0 else 0.0
+        percent = completed_files * 100.0 / total
+        print(
+            f"pngquant progress: {completed_files:,}/{total:,} "
+            f"({percent:.1f}%) | batch {batch_index}/{batch_count} "
+            f"{batch_seconds:.1f}s | elapsed {elapsed / 60:.1f} min | "
+            f"{rate:.1f} files/s | ETA {eta_seconds / 60:.1f} min | "
+            f"saved {counters['png_bytes_saved'] / (1024**2):.1f} MiB",
+            flush=True,
+        )
+
+    total_elapsed = time.monotonic() - started
+    print(
+        f"pngquant complete: {total:,} PNG files in {total_elapsed / 60:.1f} min; "
+        f"optimized {counters['png_optimized']:,}, unchanged "
+        f"{counters['png_not_smaller']:,}, saved "
+        f"{counters['png_bytes_saved'] / (1024**2):.1f} MiB",
+        flush=True,
+    )
 
 
 def unpack_payload(data: bytes, encoding: str) -> bytes:

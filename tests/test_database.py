@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import zlib
 import io
+import contextlib
 from pathlib import Path
 
 from scripts.build_database import build_database, unpack_payload
@@ -146,7 +147,9 @@ class SenseisDatabaseTests(unittest.TestCase):
                 info.size = len(png)
                 tar.addfile(info, io.BytesIO(png))
             database = root / "senseis.db"
-            result = build_database(archive, database, progress_every=1000)
+            progress_log = io.StringIO()
+            with contextlib.redirect_stdout(progress_log):
+                result = build_database(archive, database, progress_every=1000)
             conn = sqlite3.connect(database)
             try:
                 optimized = conn.execute(
@@ -154,6 +157,9 @@ class SenseisDatabaseTests(unittest.TestCase):
                 ).fetchone()[0]
             finally:
                 conn.close()
+
+        self.assertIn("pngquant progress: 1/1 (100.0%)", progress_log.getvalue())
+        self.assertIn("pngquant complete: 1 PNG files", progress_log.getvalue())
 
         self.assertEqual(result["png_files_seen"], 1)
         self.assertEqual(result["png_optimized"], 1)
