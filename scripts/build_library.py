@@ -85,7 +85,7 @@ def build_archive(archive: Path, output: Path, sgf_compression_report: Path | No
                 with src:
                     raw = src.read()
                 mime = mime_for(path)
-                if mime.startswith("image/") and len(raw) > MAX_IMAGE_BYTES and not is_diagram_png:
+                if mime.startswith("image/") and len(raw) > MAX_IMAGE_BYTES:
                     counts["images_removed"] += 1
                     counts["image_bytes_removed"] += len(raw)
                     continue
