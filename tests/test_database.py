@@ -9,7 +9,7 @@ import unittest
 import zlib
 from pathlib import Path
 
-from scripts.build_library import HEADER, RECORD, MAGIC, build_database, safe_path
+from scripts.build_library import HEADER, RECORD, MAGIC, build_archive, safe_path
 from scripts.analyze_snapshot import inspect_archive
 
 
@@ -83,7 +83,7 @@ class CompactArchiveTests(unittest.TestCase):
             root = Path(temporary)
             archive = self.make_archive(root)
             output = root / "senseis.slb"
-            result = build_database(archive, output)
+            result = build_archive(archive, output)
             self.assertGreaterEqual(result["files"], 6)
             self.assertEqual(result["sgf_files"], 2)
             self.assertEqual(result["diagram_pngs_skipped"], 2)
@@ -101,7 +101,7 @@ class CompactArchiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = root / "senseis.slb"
-            result = build_database(self.make_archive(root), output)
+            result = build_archive(self.make_archive(root), output)
             self.assertGreater(result["directory_uncompressed_bytes"], result["directory_compressed_bytes"])
             self.assertEqual(result["directory_entries"], result["files"])
             self.assertEqual(result["alias_entries"], 0)
@@ -110,7 +110,7 @@ class CompactArchiveTests(unittest.TestCase):
     def test_images_larger_than_500_kib_are_removed(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            result = build_database(self.make_archive(root, include_large_image=True), root / "senseis.slb")
+            result = build_archive(self.make_archive(root, include_large_image=True), root / "senseis.slb")
             self.assertEqual(result["images_removed"], 1)
             self.assertNotIn("snapshot/images/large.jpg", read_archive(root / "senseis.slb"))
 
@@ -130,7 +130,7 @@ class CompactArchiveTests(unittest.TestCase):
                 tar.addfile(info, io.BytesIO(raw))
             report = root / "compression.json"
             report.write_text(json.dumps({"recommended": True}), encoding="utf-8")
-            result = build_database(archive, root / "game.slb", report)
+            result = build_archive(archive, root / "game.slb", report)
             self.assertEqual(result["sgf_compression_enabled"], 1)
             self.assertEqual(read_archive(root / "game.slb")["snapshot/game.sgf"], raw)
 
