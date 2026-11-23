@@ -176,6 +176,10 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
     conn = sqlite3.connect(str(temporary))
     started = time.time()
     counters: Counter[str] = Counter()
+    compress_sgf = False
+    if sgf_compression_report and sgf_compression_report.is_file():
+        report = json.loads(sgf_compression_report.read_text(encoding="utf-8"))
+        compress_sgf = bool(report.get("recommended", False))
     try:
         create_schema(conn)
         conn.execute("INSERT INTO metadata(key,value) VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
