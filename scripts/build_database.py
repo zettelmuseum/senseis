@@ -157,6 +157,110 @@ def local_url(path: str, fragment: str = "") -> str:
     return encoded
 
 
+SGF_VIEWER_JS = r"""
+(function(){
+function prop(n,k){return n.p[k]||[];}
+function parseSgf(s){
+ var i=0;
+ function skip(){while(i<s.length&&/\s/.test(s[i]))i++;}
+ function value(){
+  i++;var out="";
+  while(i<s.length&&s[i]!=="]"){
+   if(s[i]==="\\"){i++;if(i<s.length){if(s[i]==="\r"){i++;if(s[i]==="\n")i++;}else if(s[i]!=="\n")out+=s[i++];else i++;}}
+   else out+=s[i++];
+  }
+  if(s[i]==="]")i++;return out;
+ }
+ function node(){
+  i++;var p={};skip();
+  while(i<s.length&&/[A-Z]/.test(s[i])){
+   var k="";while(i<s.length&&/[A-Z]/.test(s[i]))k+=s[i++];
+   var vals=[];skip();while(s[i]==="["){vals.push(value());skip();}
+   p[k]=vals;
+  }
+  return {p:p,children:[]};
+ }
+ function tree(){
+  skip();if(s[i]!=="(")return null;i++;skip();
+  var first=null,last=null;
+  while(i<s.length&&s[i]===";"){
+   var n=node();if(!first)first=n;if(last)last.children.push(n);last=n;skip();
+  }
+  while(i<s.length&&s[i]==="("){
+   var variation=tree();if(last&&variation)last.children.push(variation);skip();
+  }
+  if(s[i]===")")i++;
+  return first;
+ }
+ while(i<s.length&&s[i]!=="(")i++;
+ var root=tree(),line=[],n=root;
+ while(n){line.push(n);n=n.children.length?n.children[0]:null;}
+ return line;
+}
+function coord(v,size){if(!v||v.length<2)return null;var x=v.charCodeAt(0)-97,y=v.charCodeAt(1)-97;if(x<0||y<0||x>=size||y>=size)return null;return [x,y];}
+function boardAt(line,upto,size){
+ var b=new Array(size*size).fill(0);
+ function group(x,y,color,seen){
+  var stack=[[x,y]],stones=[],libs=false;
+  while(stack.length){var q=stack.pop(),idx=q[1]*size+q[0];if(seen.has(idx))continue;seen.add(idx);stones.push(idx);
+   var dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+   for(var d of dirs){var nx=q[0]+d[0],ny=q[1]+d[1];if(nx<0||ny<0||nx>=size||ny>=size)continue;var ni=ny*size+nx;if(!b[ni])libs=true;else if(b[ni]===color&&!seen.has(ni))stack.push([nx,ny]);}
+  }return {stones:stones,liberty:libs};
+ }
+ for(var z=0;z<=upto&&z<line.length;z++){
+  var p=line[z].p;
+  if(z===0&&p.SZ&&p.SZ[0]){var parsed=parseInt(p.SZ[0].split(":")[0],10);if(parsed>=2&&parsed<=25&&parsed!==size)return boardAt(line,upto,parsed);}
+  [["AB",1],["AW",2],["AE",0]].forEach(function(pair){(p[pair[0]]||[]).forEach(function(v){var c=coord(v,size);if(c)b[c[1]*size+c[0]]=pair[1];});});
+  var mv=p.B?["B",1]:p.W?["W",2]:null;
+  if(mv){var c=coord(p[mv[0]][0],size);if(c){var x=c[0],y=c[1],idx=y*size+x;b[idx]=mv[1];
+   var dirs=[[1,0],[-1,0],[0,1],[0,-1]],seen=new Set();
+   dirs.forEach(function(d){var nx=x+d[0],ny=y+d[1];if(nx<0||ny<0||nx>=size||ny>=size)return;var ni=ny*size+nx;if(b[ni]===3-mv[1]&&!seen.has(ni)){var g=group(nx,ny,3-mv[1],seen);if(!g.liberty)g.stones.forEach(function(k){b[k]=0;});}});
+  }}
+ }
+ return b;
+}
+function draw(canvas,line,index,size){
+ var ratio=window.devicePixelRatio||1,w=420,margin=24,step=(w-2*margin)/(size-1);
+ canvas.width=w*ratio;canvas.height=w*ratio;canvas.style.width="100%";canvas.style.height="auto";
+ var c=canvas.getContext("2d");c.scale(ratio,ratio);c.fillStyle="#d9ad68";c.fillRect(0,0,w,w);
+ c.strokeStyle="#342719";c.lineWidth=1;
+ for(var j=0;j<size;j++){var p=margin+j*step;c.beginPath();c.moveTo(margin,p);c.lineTo(w-margin,p);c.stroke();c.beginPath();c.moveTo(p,margin);c.lineTo(p,w-margin);c.stroke();}
+ if(size===19){[3,9,15].forEach(function(y){[3,9,15].forEach(function(x){c.beginPath();c.arc(margin+x*step,margin+y*step,2.7,0,Math.PI*2);c.fillStyle="#342719";c.fill();});});}
+ var b=boardAt(line,index,size);
+ for(var y=0;y<size;y++)for(var x=0;x<size;x++){var v=b[y*size+x];if(!v)continue;var px=margin+x*step,py=margin+y*step,r=step*.46;
+  c.beginPath();c.arc(px,py,r,0,Math.PI*2);c.fillStyle=v===1?"#111":"#f8f8f5";c.fill();c.strokeStyle="#222";c.lineWidth=1;c.stroke();
+ }
+ var last=line[index],m=last&&(last.p.B||last.p.W);if(m&&m[0]){var q=coord(m[0],size);if(q){c.beginPath();c.arc(margin+q[0]*step,margin+q[1]*step,step*.17,0,Math.PI*2);c.strokeStyle=m===last.p.B?"#fff":"#111";c.lineWidth=2;c.stroke();}}
+}
+function init(el){
+ var path=el.getAttribute("data-sgf");
+ el.innerHTML="<div class='sgfv-board'><canvas></canvas></div><div class='sgfv-controls'><button type='button' class='sgfv-prev'>‹</button><span class='sgfv-count'></span><button type='button' class='sgfv-next'>›</button></div>";
+ var canvas=el.querySelector("canvas"),count=el.querySelector(".sgfv-count"),prev=el.querySelector(".sgfv-prev"),next=el.querySelector(".sgfv-next");
+ fetch(path).then(function(r){if(!r.ok)throw new Error("SGF unavailable");return r.text();}).then(function(s){
+  var line=parseSgf(s);if(!line.length)throw new Error("Empty SGF");
+  var size=19;if(line[0].p.SZ&&line[0].p.SZ[0])size=parseInt(line[0].p.SZ[0].split(":")[0],10)||19;
+  var index=line.length-1;
+  function render(){draw(canvas,line,index,size);count.textContent=(index+1)+" / "+line.length;prev.disabled=index===0;next.disabled=index===line.length-1;}
+  prev.addEventListener("click",function(){if(index>0){index--;render();}});
+  next.addEventListener("click",function(){if(index<line.length-1){index++;render();}});
+  render();
+ }).catch(function(){el.textContent="SGF diagram unavailable";});
+}
+document.querySelectorAll(".senseis-sgf-viewer").forEach(init);
+})();
+"""
+
+def paired_sgf_for_png(conn: sqlite3.Connection, png_path: str) -> str | None:
+    if not png_path.lower().endswith(".png"):
+        return None
+    name = PurePosixPath(png_path).name
+    code = name[:-4]
+    if len(code) != 32 or not re.fullmatch(r"[0-9a-fA-F]{32}", code):
+        return None
+    sgf_path = png_path[:-4] + ".sgf"
+    return sgf_path if conn.execute("SELECT 1 FROM files WHERE path=?", (sgf_path,)).fetchone() else None
+
+
 def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes, str, str]:
     soup = BeautifulSoup(raw, "html.parser")
     # A snapshot may contain a live-site <base> element. Removing it ensures
@@ -175,7 +279,14 @@ def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes
             continue
         target, fragment, same_site = resolve_internal_target(conn, href, path)
         if target:
-            tag["href"] = local_url(target, fragment)
+            sgf_path = paired_sgf_for_png(conn, target)
+            if sgf_path:
+                tag["href"] = local_url(sgf_path)
+                tag["data-senseis-sgf"] = "1"
+                tag["download"] = PurePosixPath(sgf_path).name
+                tag["title"] = "Open SGF diagram"
+            else:
+                tag["href"] = local_url(target, fragment)
         elif same_site:
             parsed = urllib.parse.urlsplit(href)
             # Keep an unresolved internal wiki reference local. The app renders a
@@ -186,13 +297,21 @@ def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes
             elif parsed.path:
                 tag["href"] = local_url(parsed.path.lstrip("/"), parsed.fragment)
 
-    for tag in soup.find_all(src=True):
+    for tag in list(soup.find_all(src=True)):
         src = str(tag.get("src", "")).strip()
         if not src or src.startswith(("data:", "blob:", "javascript:")):
             continue
         target, fragment, same_site = resolve_internal_target(conn, src, path)
         if target:
-            tag["src"] = local_url(target, fragment)
+            sgf_path = paired_sgf_for_png(conn, target)
+            if sgf_path:
+                viewer = soup.new_tag("div")
+                viewer["class"] = "senseis-sgf-viewer"
+                viewer["data-sgf"] = local_url(sgf_path)
+                viewer["aria-label"] = str(tag.get("alt", "Go diagram"))
+                tag.replace_with(viewer)
+            else:
+                tag["src"] = local_url(target, fragment)
 
     for tag in soup.find_all("a", href=True):
         target, _, _ = resolve_internal_target(conn, str(tag.get("href", "")), path)
@@ -213,10 +332,10 @@ def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes
         viewport = soup.new_tag("meta", attrs={"name": "viewport", "content": "width=device-width, initial-scale=1"})
         soup.head.append(viewport)
     style = soup.new_tag("style")
-    style.string = "body{max-width:100%;margin:0 auto;padding:12px;line-height:1.45;overflow-wrap:anywhere}img,video,svg{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse;display:block;overflow-x:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{overflow-wrap:anywhere}"
+    style.string = "body{max-width:100%;margin:0 auto;padding:12px;line-height:1.45;overflow-wrap:anywhere}img,video,svg{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse;display:block;overflow-x:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{overflow-wrap:anywhere}.senseis-sgf-viewer{max-width:420px;margin:12px auto;background:#d9ad68;padding:4px;border:1px solid #80613c}.sgfv-controls{display:flex;align-items:center;justify-content:center;gap:20px;padding:5px;background:#eee}.sgfv-controls button{min-width:42px;min-height:36px;font-size:22px}.sgfv-controls span{font:13px sans-serif}"
     soup.head.append(style)
     bridge = soup.new_tag("script")
-    bridge.string = "(function(){document.addEventListener('click',function(e){var n=e.target;while(n&&n.tagName!=='A')n=n.parentNode;if(!n||!n.hasAttribute('data-senseis-sgf'))return;e.preventDefault();if(window.SenseiBridge&&window.SenseiBridge.saveSgf)window.SenseiBridge.saveSgf(n.getAttribute('href'));},true);})();"
+    bridge.string = SGF_VIEWER_JS + "(function(){document.addEventListener('click',function(e){var n=e.target;while(n&&n.tagName!=='A')n=n.parentNode;if(!n||!n.hasAttribute('data-senseis-sgf'))return;e.preventDefault();if(window.SenseiBridge&&window.SenseiBridge.saveSgf)window.SenseiBridge.saveSgf(n.getAttribute('href'));},true);})();"
     (soup.body or soup.html).append(bridge)
 
     body = soup.body or soup
@@ -389,6 +508,27 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
                 print(f"Rewrote {index:,}/{len(html_paths):,} HTML pages", flush=True)
         conn.commit()
 
+        # The snapshot uses identical 32-hex basenames for each diagram PNG and
+        # its SGF source. HTML has already been rewritten to render the SGF, so
+        # remove the redundant PNG payloads and their aliases from the database.
+        diagram_png_rows = conn.execute("""
+            SELECT p.path, p.size
+            FROM files AS p
+            JOIN files AS s ON s.path = substr(p.path, 1, length(p.path) - 3) || 'sgf'
+            WHERE lower(p.path) LIKE '%.png'
+              AND length(p.name) = 36
+              AND substr(p.name, 33, 4) = '.png'
+              AND substr(p.name, 1, 32) NOT GLOB '*[^0-9A-Fa-f]*'
+        """).fetchall()
+        if diagram_png_rows:
+            diagram_paths = [row[0] for row in diagram_png_rows]
+            counters["diagram_pngs_removed"] = len(diagram_paths)
+            counters["diagram_png_bytes_removed"] = sum(int(row[1]) for row in diagram_png_rows)
+            conn.executemany("DELETE FROM aliases WHERE path=?", ((p,) for p in diagram_paths))
+            conn.executemany("DELETE FROM files WHERE path=?", ((p,) for p in diagram_paths))
+            conn.commit()
+            print(f"Removed {len(diagram_paths):,} redundant PNG diagrams ({counters['diagram_png_bytes_removed'] / (1024**2):,.1f} MiB); SGF viewers remain", flush=True)
+
         file_count = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
         page_count = int(conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0])
         write_home_page(conn, file_count, page_count)
@@ -427,6 +567,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             "uncompressed_bytes": int(counters["bytes_original"]),
             "images_removed": int(counters["images_removed"]),
             "image_bytes_removed": int(counters["image_bytes_removed"]),
+            "diagram_pngs_removed": int(counters["diagram_pngs_removed"]),
+            "diagram_png_bytes_removed": int(counters["diagram_png_bytes_removed"]),
             "database_bytes_before_compaction": before_compaction_bytes,
             "database_freelist_pages_before_compaction": before_compaction_freelist_pages,
             "database_freelist_pages_after_compaction": after_compaction_freelist_pages,
