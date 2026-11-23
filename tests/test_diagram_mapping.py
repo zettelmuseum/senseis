@@ -29,7 +29,7 @@ class DiagramMappingTests(unittest.TestCase):
                 b"<html><body><a href='games/game.sgf'><img src='images/diagram.png'></a></body></html>",
             )
             report = analyze_archive(archive)
-        self.assertTrue(report["all_pngs_uniquely_mapped"])
+        self.assertTrue(report["all_pngs_have_strong_unique_sgf_mapping"])
         self.assertEqual(report["strong_unique_one_to_one_pairs"], 1)
 
     def test_multiple_images_on_page_are_not_guessed(self):
