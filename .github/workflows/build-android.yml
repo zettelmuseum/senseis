@@ -59,7 +59,7 @@ jobs:
             core.notice(message);
             core.info(message);
 
-      - name: Install lossy PNG optimizer
+      - name: Install WebP encoder
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends webp

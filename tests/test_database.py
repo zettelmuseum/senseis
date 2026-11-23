@@ -152,9 +152,9 @@ class SenseisDatabaseTests(unittest.TestCase):
                 result = build_database(archive, database, progress_every=1000)
             conn = sqlite3.connect(database)
             try:
-                optimized = conn.execute(
-                    "SELECT data FROM files WHERE path='images/random.png'"
-                ).fetchone()[0]
+                optimized, mime = conn.execute(
+                    "SELECT data,mime FROM files WHERE path='images/random.png'"
+                ).fetchone()
             finally:
                 conn.close()
 
@@ -165,12 +165,7 @@ class SenseisDatabaseTests(unittest.TestCase):
         self.assertLess(len(optimized), len(png))
         self.assertEqual(optimized[:4], b"RIFF")
         self.assertEqual(optimized[8:12], b"WEBP")
-        conn = sqlite3.connect(database)
-        try:
-            mime = conn.execute("SELECT mime FROM files WHERE path='images/random.png'").fetchone()[0]
-            self.assertEqual(mime, "image/webp")
-        finally:
-            conn.close()
+        self.assertEqual(mime, "image/webp")
 
     def test_archive_path_traversal_is_rejected(self):
         from scripts.build_database import safe_tar_path

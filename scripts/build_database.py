@@ -99,6 +99,8 @@ def optimize_pngs_to_webp(conn: sqlite3.Connection, records: list[tuple[str, Pat
             completed = subprocess.run([executable, "-quiet", "-q", str(WEBP_QUALITY), "-m", str(WEBP_METHOD), "-mt", str(staged_path), "-o", str(webp_path)], capture_output=True, text=True, check=False)
             if completed.returncode != 0 or not webp_path.is_file():
                 counters["webp_conversion_warnings"] += 1
+                counters["webp_not_smaller"] += 1
+                counters["webp_bytes_after"] += original_size
                 detail = (completed.stderr or completed.stdout).strip()
                 print(f"WARNING: cwebp failed for {path}: {detail[:300]}", flush=True)
                 continue
