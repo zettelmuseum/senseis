@@ -176,7 +176,6 @@ jobs:
               "- Alias table: removed; aliases are resolved from file paths on demand",
               f"- Archive format: {archive['format']} v{archive['format_version']}",
               f"- Images removed (>500 KiB): {archive['images_removed']:,} ({archive['image_bytes_removed']:,} source bytes)",
-              f"- Diagram PNGs skipped before archiving: {archive['diagram_pngs_skipped']:,} ({archive['diagram_png_bytes_skipped']:,} source bytes)",
               f"- SGF compression sample: {sgf['samples']} files; zlib-6 saves {sgf['zlib6_saving_percent']}%; {sgf['zlib6_mib_per_second']} MiB/s",
               f"- SGF compression enabled: {'yes' if archive['sgf_compression_enabled'] else 'no'}",
               "- Search indexing: none; the Android app scans page contents directly",
