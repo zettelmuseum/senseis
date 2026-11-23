@@ -30,7 +30,7 @@ class DiagramMappingTests(unittest.TestCase):
             )
             report = analyze_archive(archive)
         self.assertTrue(report["all_pngs_uniquely_mapped"])
-        self.assertEqual(report["unique_one_to_one_pairs"], 1)
+        self.assertEqual(report["strong_unique_one_to_one_pairs"], 1)
 
     def test_multiple_images_on_page_are_not_guessed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -40,7 +40,7 @@ class DiagramMappingTests(unittest.TestCase):
             )
             report = analyze_archive(archive)
         self.assertEqual(report["unique_one_to_one_pairs"], 0)
-        self.assertEqual(report["pngs_unmatched"], 1)
+        self.assertEqual(report["pngs_with_no_sgf_candidate"], 1)
 
 
 if __name__ == "__main__":

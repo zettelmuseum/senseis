@@ -38,10 +38,7 @@ jobs:
         if: steps.snapshot-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p build
-          curl --fail --location --show-error --retry 5 --retry-all-errors --retry-delay 5 \\
-            --connect-timeout 30 --max-time 7200 \\
-            https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2 \\
-            --output build/senseis-library.tar.bz2
+          curl --fail --location --show-error --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 7200 https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2 --output build/senseis-library.tar.bz2
 
       - name: Verify snapshot archive
         run: |
@@ -54,9 +51,7 @@ jobs:
 
       - name: Analyze every PNG and SGF reference
         run: |
-          python scripts/analyze_png_sgf.py \\
-            --archive build/senseis-library.tar.bz2 \\
-            --report build/png-sgf-mapping.json
+          python scripts/analyze_png_sgf.py --archive build/senseis-library.tar.bz2 --report build/png-sgf-mapping.json
 
       - name: Upload complete mapping report
         uses: actions/upload-artifact@v4
