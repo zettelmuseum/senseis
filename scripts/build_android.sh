@@ -20,9 +20,16 @@ done
 OUT="$ROOT/app/build"
 CLASSES="$OUT/classes"
 DEX="$OUT/dex"
-mkdir -p "$OUT" "$CLASSES" "$DEX"
-rm -rf "$CLASSES" "$DEX"
-mkdir -p "$CLASSES" "$DEX"
+TEST_CLASSES="$OUT/test-classes"
+mkdir -p "$OUT" "$CLASSES" "$DEX" "$TEST_CLASSES"
+rm -rf "$CLASSES" "$DEX" "$TEST_CLASSES"
+mkdir -p "$CLASSES" "$DEX" "$TEST_CLASSES"
+
+# Run the pure-Java HTML preprocessing tests before packaging the Android app.
+javac -encoding UTF-8 -source 8 -target 8 -d "$TEST_CLASSES" \
+  "$ROOT/app/src/main/java/de/zettelmuseum/senseis/SgfHtmlPreprocessor.java" \
+  "$ROOT/tests/java/de/zettelmuseum/senseis/SgfHtmlPreprocessorTest.java"
+java -cp "$TEST_CLASSES" de.zettelmuseum.senseis.SgfHtmlPreprocessorTest
 
 find "$ROOT/app/src/main/java" -type f -name '*.java' -print0 | xargs -0 javac \
   -encoding UTF-8 -source 8 -target 8 \
