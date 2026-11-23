@@ -197,14 +197,9 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
                 if path is None:
                     counters["unsafe_or_empty"] += 1
                     continue
-                source = tar.extractfile(member)
-                if source is None:
-                    continue
-                with source:
-                    data = source.read()
                 name = PurePosixPath(path).name
-                # Diagram names are fixed 32-character hexadecimal IDs. The app
-                # renders their SGF counterpart dynamically, so never store these PNGs.
+                # Diagram names are fixed 32-character hexadecimal IDs. Skip
+                # them before reading their payload; unmatched IDs are irrelevant too.
                 is_diagram_png = (
                     path.lower().endswith(".png")
                     and len(name) == 36
@@ -213,8 +208,13 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_
                 )
                 if is_diagram_png:
                     counters["diagram_pngs_skipped"] += 1
-                    counters["diagram_png_bytes_skipped"] += len(data)
+                    counters["diagram_png_bytes_skipped"] += int(member.size)
                     continue
+                source = tar.extractfile(member)
+                if source is None:
+                    continue
+                with source:
+                    data = source.read()
                 is_html = is_html_file(path, data)
                 mime = mime_for(path, is_html)
                 if mime.startswith("image/") and len(data) > MAX_IMAGE_BYTES:
