@@ -139,7 +139,7 @@ def analyze_archive(archive: Path, report_path: Path | None = None) -> dict:
                 page_pngs.add(resolved)
                 png_references[resolved] += 1
         for raw in sgf_urls:
-            resolved = resolve_local(raw, page_path, paths)
+            resolved = resolve_local(raw, page_path, paths, casefold_paths)
             if resolved in sgf_paths:
                 page_sgfs.add(resolved)
                 sgf_references[resolved] += 1
@@ -223,7 +223,7 @@ def analyze_archive(archive: Path, report_path: Path | None = None) -> dict:
     }
     if report_path:
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return report
 
 
