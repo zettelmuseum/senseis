@@ -21,32 +21,13 @@ function mapInternalUrls(){
   var mapped=localUrl(raw);
   if(mapped)el.setAttribute(attr,mapped);
  });
- var images=Array.prototype.slice.call(document.querySelectorAll("img[src]"));
- images.forEach(function(img){
+ document.querySelectorAll("img[src]").forEach(function(img){
   img.loading="lazy";
   img.decoding="async";
   img.setAttribute("fetchpriority","low");
-  var raw=img.getAttribute("src");
-  var mapped=localUrl(raw);
-  if(mapped)raw=mapped;
-  img.setAttribute("data-senseis-src",raw);
-  img.removeAttribute("src");
+  var mapped=localUrl(img.getAttribute("src"));
+  if(mapped)img.setAttribute("src",mapped);
  });
- if("IntersectionObserver" in window){
-  var observer=new IntersectionObserver(function(items){
-   items.forEach(function(item){
-    var img=item.target,src=img.getAttribute("data-senseis-src");
-    if(item.isIntersecting){
-     if(src&&!img.hasAttribute("src"))img.setAttribute("src",src);
-    }else if(img.hasAttribute("src")&&!img.__senseisPinned){
-     img.removeAttribute("src");
-    }
-   });
-  },{rootMargin:"300px 0px"});
-  images.forEach(function(img){observer.observe(img);});
- }else{
-  images.forEach(function(img){img.setAttribute("src",img.getAttribute("data-senseis-src"));});
- }
  document.querySelectorAll("base").forEach(function(b){b.remove();});
 }
 function loadBesogo(){
@@ -126,8 +107,8 @@ function enhance(){
  style.textContent="body{max-width:100%;margin:0 auto;padding:12px;line-height:1.45;overflow-wrap:anywhere}img,video,svg{max-width:100%;height:auto}table{max-width:100%;border-collapse:collapse;display:block;overflow-x:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{overflow-wrap:anywhere}.besogo-container{max-width:100%;margin:14px auto!important}.besogo-panels{max-width:100%}.besogo-comment{max-height:180px;overflow:auto}.senseis-sgf-error{padding:12px;color:#8b1b1b;background:#fff0f0}";
  document.head.appendChild(style);
  mapInternalUrls();
- Array.prototype.slice.call(document.querySelectorAll("img[data-senseis-src],img[src]")).forEach(function(img){
-  var imageSrc=img.getAttribute("data-senseis-src")||img.getAttribute("src");
+ Array.prototype.slice.call(document.querySelectorAll("img[src]")).forEach(function(img){
+  var imageSrc=img.getAttribute("src");
   var u;try{u=new URL(imageSrc,document.baseURI);}catch(e){return;}
   if(!/(^|\/)[0-9a-f]{32}\.png$/i.test(u.pathname))return;
   var anchor=img.closest?img.closest("a"):null;
