@@ -174,6 +174,46 @@ function openDiagram(placeholder) {
     });
 }
 
+function enforceDarkPage() {
+    if (document.documentElement.getAttribute("data-senseis-dark") !== "1") return;
+    function apply(node) {
+        if (!node || node.nodeType !== 1 || !node.style) return;
+        var tag = node.tagName;
+        if (/^(IMG|SVG|CANVAS|VIDEO|IFRAME)$/i.test(tag)) return;
+        node.removeAttribute("bgcolor");
+        node.style.removeProperty("background");
+        node.style.removeProperty("background-color");
+        if (node === document.documentElement || node === document.body) {
+            node.style.setProperty("background-color", "#17191c", "important");
+        } else {
+            node.style.setProperty("background-color", "transparent", "important");
+        }
+    }
+    apply(document.documentElement);
+    apply(document.body);
+    function scan(root) {
+        if (!root || !root.querySelectorAll) return;
+        var all = root.querySelectorAll("*");
+        for (var i = 0; i < all.length; i++) apply(all[i]);
+    }
+    scan(document.body);
+    if (!window.__senseisDarkObserver && window.MutationObserver) {
+        window.__senseisDarkObserver = new MutationObserver(function (records) {
+            records.forEach(function (record) {
+                if (record.type === "attributes") apply(record.target);
+                for (var i = 0; i < record.addedNodes.length; i++) {
+                    var node = record.addedNodes[i];
+                    if (node.nodeType === 1) { apply(node); scan(node); }
+                }
+            });
+        });
+        window.__senseisDarkObserver.observe(document.documentElement, {
+            subtree: true, childList: true, attributes: true,
+            attributeFilter: ["style", "bgcolor"]
+        });
+    }
+}
+
 function enhance() {
     var style = document.createElement("style");
     style.textContent =
@@ -198,6 +238,7 @@ function enhance() {
     }
     document.head.appendChild(style);
     mapInternalUrls();
+    enforceDarkPage();
 }
 
 document.addEventListener("click", function (event) {
