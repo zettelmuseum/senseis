@@ -60,6 +60,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_SAVE_SGF = 4102;
     private static final String LOCAL_HOST = "senseis.local";
     private static final String BASE_URL = "https://senseis.local/";
+    private static final String HOME_PAGE_PATH = "senseis-library/pages/S/startingpoints.html";
     private static final byte[] MAGIC = new byte[]{'S','L','I','B','P','K','0','1'};
     private static final int HEADER_SIZE = 32;
     private static final int FLAG_DEFLATE = 1;
@@ -295,6 +296,23 @@ public class MainActivity extends Activity {
     private String findAlias(String value) {
         String key = aliasKey(value);
         String dotted = key.replace('/', '.');
+
+        // Snapshot wiki pages use a deterministic first-letter directory:
+        // senseis-library/pages/<initial>/<slug>.html. Check it directly
+        // before the legacy fallback scan through every archive entry.
+        String pageFolder = null;
+        String pageName = key;
+        int pageSlash = key.indexOf('/');
+        if (pageSlash < 0) {
+            if (key.length() > 0) pageFolder = key.substring(0, 1).toUpperCase(Locale.ROOT);
+        } else if (pageSlash == 1 && key.indexOf('/', pageSlash + 1) < 0) {
+            pageFolder = key.substring(0, pageSlash).toUpperCase(Locale.ROOT);
+            pageName = key.substring(pageSlash + 1);
+        }
+        if (pageFolder != null && pageName.length() > 0) {
+            Entry directPage = findEntry("senseis-library/pages/" + pageFolder + "/" + pageName + ".html");
+            if (directPage != null) return directPage.path;
+        }
         for (Entry e : entries) {
             String p = e.path.toLowerCase(Locale.ROOT);
             String noExt = p.replaceFirst("\\.(html?|xhtml|shtml)$", "");
@@ -459,7 +477,7 @@ public class MainActivity extends Activity {
     }
 
     private void loadHome() {
-        if (webView != null && entries != null) webView.loadUrl(BASE_URL + "startingpoints.html");
+        if (webView != null && entries != null) webView.loadUrl(BASE_URL + HOME_PAGE_PATH);
     }
 
     // Store the URL exactly as WebView sees it. Do not resolve aliases or scan
