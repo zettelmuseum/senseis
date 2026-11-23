@@ -475,10 +475,8 @@ public class MainActivity extends Activity {
         if (path == null || path.length() == 0) path = "startingpoints.html";
         Entry entry = findEntry(path);
         if (entry == null && !path.startsWith("snapshot/")) entry = findEntry("snapshot/" + path);
-        if (entry == null) {
-            String alias = findAlias(path);
-            if (alias != null) entry = findEntry(alias);
-        }
+        // Do not resolve aliases here: this method runs on the UI thread from
+        // WebView page callbacks. Alias resolution scans the full archive directory.
         return entry != null && entry.isHtml() ? entry.path : null;
     }
 
