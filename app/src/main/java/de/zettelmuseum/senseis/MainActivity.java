@@ -515,14 +515,12 @@ public class MainActivity extends Activity {
                 Cursor cursor = null;
                 try {
                     String[] terms = query.toLowerCase(Locale.ROOT).split("\\s+");
-                    cursor = database.rawQuery("SELECT pages.path,pages.title,files.data,files.encoding FROM pages JOIN files ON files.path=pages.path ORDER BY pages.title COLLATE NOCASE", null);
+                    cursor = database.rawQuery("SELECT pages.path,pages.title,files.encoding FROM pages JOIN files ON files.path=pages.path ORDER BY pages.title COLLATE NOCASE", null);
                     while (cursor.moveToNext() && results.size() < 100) {
                         String title = cursor.getString(1);
                         boolean match = title != null && containsAllTerms(title, terms);
                         if (!match) {
-                            byte[] payload = cursor.getBlob(2);
-                            InputStream pageStream = new ByteArrayInputStream(payload);
-                            if ("deflate".equals(cursor.getString(3))) pageStream = new InflaterInputStream(pageStream);
+                            InputStream pageStream = openPayloadStream(cursor.getString(0), cursor.getString(2));
                             try { match = containsAllTerms(pageStream, terms); }
                             finally { pageStream.close(); }
                         }
