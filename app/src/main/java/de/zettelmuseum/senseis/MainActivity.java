@@ -646,7 +646,7 @@ public class MainActivity extends Activity {
                     Cursor check = test.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
                     boolean valid = check.moveToFirst() && "6".equals(check.getString(0));
                     check.close();
-                    Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('files','pages','aliases')", null);
+                    Cursor tables = test.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('metadata','files','pages','aliases')", null);
                     valid = valid && tables.moveToFirst() && tables.getInt(0) == 4;
                     tables.close();
                     test.close();
