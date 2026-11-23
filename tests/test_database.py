@@ -70,13 +70,13 @@ class SenseisDatabaseTests(unittest.TestCase):
                     "SELECT data,encoding FROM files WHERE path='snapshot/index.html'"
                 ).fetchone()
                 html = unpack_payload(page[0], page[1]).decode("utf-8")
-                self.assertIn("/snapshot/Go/Introduction.html", html)
-                self.assertIn("data-senseis-sgf", html)
-                self.assertIn("senseis-sgf-viewer", html)
-                self.assertIn("/snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.sgf", html)
+                self.assertIn("href='?Go.Introduction'", html)
+                self.assertIn("src='images/9a8fcc48e64b4f14cfd4234df48afe83.png'", html)
+                self.assertNotIn("senseis-sgf-viewer", html)
+                self.assertNotIn("data-senseis-sgf", html)
                 self.assertIsNone(conn.execute("SELECT path FROM files WHERE path='snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.png'").fetchone())
                 self.assertIsNotNone(conn.execute("SELECT path FROM files WHERE path='snapshot/images/stone.png'").fetchone())
-                self.assertNotIn("<base", html.lower())
+                self.assertIn("<base href='https://senseis.xmp.net/'", html.lower())
                 sgf = conn.execute(
                     "SELECT data FROM files WHERE path='snapshot/files/tesuji.sgf'"
                 ).fetchone()[0]
@@ -99,7 +99,7 @@ class SenseisDatabaseTests(unittest.TestCase):
             try:
                 row = conn.execute("SELECT data,encoding FROM files WHERE path='snapshot/Go/Introduction.html'").fetchone()
                 page = unpack_payload(row[0], row[1]).decode("utf-8")
-                self.assertIn("/snapshot/index.html#top", page)
+                self.assertIn("href='../index.html#top'", page)
                 self.assertEqual(conn.execute("SELECT path FROM aliases WHERE alias='go.introduction'").fetchone()[0], "snapshot/Go/Introduction.html")
                 self.assertEqual(conn.execute("SELECT path FROM aliases WHERE alias='tesuji.sgf'").fetchone()[0], "snapshot/files/tesuji.sgf")
             finally:
