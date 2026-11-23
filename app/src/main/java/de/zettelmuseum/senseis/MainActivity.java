@@ -469,6 +469,13 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private boolean containsAllTerms(String text, String[] terms) {
+        if (text == null) return false;
+        String value = text.toLowerCase(Locale.ROOT);
+        for (String term : terms) if (term.length() > 0 && !value.contains(term)) return false;
+        return true;
+    }
+
     private boolean containsAllTerms(InputStream stream, String[] terms) throws Exception {
         boolean[] found = new boolean[terms.length];
         int remaining = 0;
