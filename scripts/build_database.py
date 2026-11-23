@@ -25,10 +25,10 @@ TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", "
 SCHEMA_VERSION = 6
 MAX_IMAGE_BYTES = 500 * 1024
 
-TITLE_RE = re.compile(rb"<title\\b[^>]*>(.*?)</title\\s*>", re.IGNORECASE | re.DOTALL)
-HEADING_RE = re.compile(rb"<h[12]\\b[^>]*>(.*?)</h[12]\\s*>", re.IGNORECASE | re.DOTALL)
+TITLE_RE = re.compile(rb"<title\b[^>]*>(.*?)</title\s*>", re.IGNORECASE | re.DOTALL)
+HEADING_RE = re.compile(rb"<h[12]\b[^>]*>(.*?)</h[12]\s*>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(rb"<[^>]*>")
-CHARSET_RE = re.compile(rb"<meta[^>]+charset\\s*=\\s*[\"']?([a-zA-Z0-9._-]+)", re.IGNORECASE)
+CHARSET_RE = re.compile(rb"<meta[^>]+charset\s*=\s*[\"']?([a-zA-Z0-9._-]+)", re.IGNORECASE)
 
 
 def extract_page_title(raw: bytes, path: str, name: str) -> str:
@@ -46,7 +46,7 @@ def extract_page_title(raw: bytes, path: str, name: str) -> str:
         except LookupError:
             text = match.group(1).decode("utf-8", errors="replace")
         value = html.unescape(TAG_RE.sub(b" ", text.encode("utf-8", errors="replace")).decode("utf-8"))
-    return re.sub(r"\\s+", " ", value).strip()[:300] or name
+    return re.sub(r"\s+", " ", value).strip()[:300] or name
 
 
 def safe_tar_path(name: str) -> str | None:
