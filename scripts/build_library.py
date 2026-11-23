@@ -73,19 +73,18 @@ def build_archive(archive: Path, output: Path, sgf_compression_report: Path | No
                     counts["unsafe_or_empty"] += 1
                     continue
                 name = PurePosixPath(path).name
-                if (path.lower().endswith(".png") and len(name) == 36
-                        and name[32:].lower() == ".png"
-                        and re.fullmatch(r"[0-9a-fA-F]{32}", name[:32])):
-                    counts["diagram_pngs_skipped"] += 1
-                    counts["diagram_png_bytes_skipped"] += int(member.size)
-                    continue
+                is_diagram_png = (
+                    path.lower().endswith(".png") and len(name) == 36
+                    and name[32:].lower() == ".png"
+                    and re.fullmatch(r"[0-9a-fA-F]{32}", name[:32]) is not None
+                )
                 src = tar.extractfile(member)
                 if src is None:
                     continue
                 with src:
                     raw = src.read()
                 mime = mime_for(path)
-                if mime.startswith("image/") and len(raw) > MAX_IMAGE_BYTES:
+                if mime.startswith("image/") and len(raw) > MAX_IMAGE_BYTES and not is_diagram_png:
                     counts["images_removed"] += 1
                     counts["image_bytes_removed"] += len(raw)
                     continue
@@ -107,6 +106,8 @@ def build_archive(archive: Path, output: Path, sgf_compression_report: Path | No
                 stat["stored_payload_bytes"] += len(packed)
                 entries.append((path, offset, len(packed), zlib.crc32(raw) & 0xffffffff, flags))
                 counts["files"] += 1
+                counts["diagram_pngs_kept"] += int(is_diagram_png)
+                counts["diagram_png_bytes_kept"] += len(raw) if is_diagram_png else 0
                 counts["bytes_original"] += len(raw)
                 counts["html_files"] += int(html_file)
                 counts["sgf_files"] += int(path.lower().endswith(".sgf"))
@@ -162,8 +163,8 @@ def build_archive(archive: Path, output: Path, sgf_compression_report: Path | No
             "file_type_storage": dict(sorted(extstats.items(), key=lambda item: item[1]["stored_payload_bytes"], reverse=True)),
             "images_removed": counts["images_removed"],
             "image_bytes_removed": counts["image_bytes_removed"],
-            "diagram_pngs_skipped": counts["diagram_pngs_skipped"],
-            "diagram_png_bytes_skipped": counts["diagram_png_bytes_skipped"],
+            "diagram_pngs_kept": counts["diagram_pngs_kept"],
+            "diagram_png_bytes_kept": counts["diagram_png_bytes_kept"],
             "sgf_compression_enabled": int(compress_sgf),
             "archive_bytes": output.stat().st_size,
             "seconds": round(time.time() - started, 1),
