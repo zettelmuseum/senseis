@@ -20,11 +20,14 @@ class SenseisDatabaseTests(unittest.TestCase):
         members = {
             "snapshot/index.html": b"""<!doctype html><html><head><title>Home</title><base href='https://senseis.xmp.net/'></head><body>
                 <h1>Sensei Home</h1><a href='?Go.Introduction'>Go introduction</a>
-                <a href='files/tesuji.sgf'>SGF</a><img src='images/stone.png'></body></html>""",
+                <a href='files/tesuji.sgf'>SGF</a><img src='images/stone.png'>
+                <img src='images/9a8fcc48e64b4f14cfd4234df48afe83.png' alt='Go diagram'></body></html>""",
             "snapshot/Go/Introduction.html": b"""<!doctype html><html><head><title>Go Introduction</title></head><body>
                 <h1>Introduction</h1><a href='../index.html#top'>Home</a>
                 <p>Rules and strategy</p></body></html>""",
             "snapshot/files/tesuji.sgf": b"(;GM[1]FF[4]SZ[19];B[pd];W[dd])",
+            "snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.sgf": b"(;GM[1]FF[4]SZ[19];B[pd];W[dd])",
+            "snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.png": b"\\x89PNG\\r\\n\\x1a\\n" + b"x" * 60,
             "snapshot/images/stone.png": b"\x89PNG\r\n\x1a\n" + b"x" * 60,
             "snapshot/css/site.css": b"body { color: black; }" * 100,
             "snapshot/notes.txt": b"snapshot note",
@@ -57,7 +60,8 @@ class SenseisDatabaseTests(unittest.TestCase):
             database = root / "senseis.db"
             result = build_database(archive, database, progress_every=1000)
             self.assertGreaterEqual(result["files"], 6)
-            self.assertEqual(result["sgf_files"], 1)
+            self.assertEqual(result["sgf_files"], 2)
+            self.assertEqual(result["diagram_pngs_removed"], 1)
             conn = sqlite3.connect(database)
             try:
                 home = conn.execute("SELECT value FROM metadata WHERE key='start_path'").fetchone()[0]
@@ -68,6 +72,10 @@ class SenseisDatabaseTests(unittest.TestCase):
                 html = unpack_payload(page[0], page[1]).decode("utf-8")
                 self.assertIn("/snapshot/Go/Introduction.html", html)
                 self.assertIn("data-senseis-sgf", html)
+                self.assertIn("senseis-sgf-viewer", html)
+                self.assertIn("/snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.sgf", html)
+                self.assertIsNone(conn.execute("SELECT path FROM files WHERE path='snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.png'").fetchone())
+                self.assertIsNotNone(conn.execute("SELECT path FROM files WHERE path='snapshot/images/stone.png'").fetchone())
                 self.assertNotIn("<base", html.lower())
                 sgf = conn.execute(
                     "SELECT data FROM files WHERE path='snapshot/files/tesuji.sgf'"

@@ -265,7 +265,6 @@ public class MainActivity extends Activity {
             headers.put("Cache-Control", "no-store");
             headers.put("X-Content-Type-Options", "nosniff");
             if (path.toLowerCase(Locale.ROOT).endsWith(".sgf")) {
-                headers.put("Content-Disposition", "attachment; filename=\"" + safeFilename(name) + "\"");
                 mime = "application/x-go-sgf";
                 charset = null;
             }
@@ -595,7 +594,7 @@ public class MainActivity extends Activity {
             database = SQLiteDatabase.openDatabase(databaseFile.getAbsolutePath(), null,
                     SQLiteDatabase.OPEN_READONLY | SQLiteDatabase.NO_LOCALIZED_COLLATORS);
             Cursor check = database.rawQuery("SELECT value FROM metadata WHERE key='schema_version'", null);
-            boolean valid = check.moveToFirst() && "2".equals(check.getString(0));
+            boolean valid = check.moveToFirst() && "3".equals(check.getString(0));
             check.close();
             return valid;
         } catch (Exception e) {

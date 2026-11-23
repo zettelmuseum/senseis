@@ -281,10 +281,8 @@ def rewrite_html(conn: sqlite3.Connection, path: str, raw: bytes) -> tuple[bytes
         if target:
             sgf_path = paired_sgf_for_png(conn, target)
             if sgf_path:
-                tag["href"] = local_url(sgf_path)
-                tag["data-senseis-sgf"] = "1"
-                tag["download"] = PurePosixPath(sgf_path).name
-                tag["title"] = "Open SGF diagram"
+                tag.attrs.pop("href", None)
+                tag["title"] = "SGF diagram"
             else:
                 tag["href"] = local_url(target, fragment)
         elif same_site:
