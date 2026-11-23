@@ -78,7 +78,7 @@ class CompactArchiveTests(unittest.TestCase):
             self.assertEqual(len([p for p in (root / "sample").rglob("*") if p.is_file()]), 1)
             self.assertEqual(report["page_examples"][0]["anchors"], 2)
 
-    def test_compact_archive_roundtrip_keeps_images_and_sgfs(self):
+    def test_compact_archive_roundtrip_and_skips_diagram_pngs(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive = self.make_archive(root)
@@ -86,13 +86,14 @@ class CompactArchiveTests(unittest.TestCase):
             result = build_archive(archive, output)
             self.assertGreaterEqual(result["files"], 6)
             self.assertEqual(result["sgf_files"], 2)
+            self.assertEqual(result["diagram_pngs_skipped"], 2)
             self.assertEqual(result["alias_entries"], 0)
             files = read_archive(output)
             self.assertIn("__senseis_home__.html", files)
             self.assertIn("href='?Go.Introduction'", files["snapshot/index.html"].decode("utf-8"))
             self.assertIn("src='images/stone.png'", files["snapshot/index.html"].decode("utf-8"))
-            self.assertIn("snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.png", files)
-            self.assertIn("snapshot/images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png", files)
+            self.assertNotIn("snapshot/images/9a8fcc48e64b4f14cfd4234df48afe83.png", files)
+            self.assertNotIn("snapshot/images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png", files)
             self.assertIn("snapshot/images/stone.png", files)
             self.assertEqual(files["snapshot/files/tesuji.sgf"], b"(;GM[1]FF[4]SZ[19];B[pd];W[dd])")
 
