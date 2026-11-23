@@ -22,8 +22,8 @@ from bs4 import BeautifulSoup
 
 SNAPSHOT_URL = "https://senseis.xmp.net/files/snapshots/senseis-library.tar.bz2"
 HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
-TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
-SCHEMA_VERSION = 5
+TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".md", ".csv", ".svg"}
+SCHEMA_VERSION = 6
 MAX_IMAGE_BYTES = 500 * 1024
 
 
@@ -59,9 +59,9 @@ def mime_for(path: str, is_html: bool) -> str:
     return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
-def store_payload(data: bytes, path: str) -> tuple[bytes, str]:
+def store_payload(data: bytes, path: str, compress_sgf: bool = False) -> tuple[bytes, str]:
     """Deflate text-like files only when the compressed representation is smaller."""
-    if len(data) >= 256 and (PurePosixPath(path).suffix.lower() in TEXT_EXTENSIONS):
+    suffix = PurePosixPath(path).suffix.lower()\n    if len(data) >= 256 and (suffix in TEXT_EXTENSIONS or (suffix == ".sgf" and compress_sgf)):
         packed = zlib.compress(data, 6)
         if len(packed) + 16 < len(data):
             return packed, "deflate"
@@ -144,7 +144,7 @@ def write_home_page(conn: sqlite3.Connection, file_count: int, page_count: int) 
     conn.execute("INSERT OR REPLACE INTO metadata(key,value) VALUES('start_path','__senseis_home__.html')")
 
 
-def build_database(archive: Path, output: Path, progress_every: int = 2500) -> dict[str, int | str]:
+def build_database(archive: Path, output: Path, progress_every: int = 2500, sgf_compression_report: Path | None = None) -> dict[str, int | str]:
     if not archive.is_file() or archive.stat().st_size == 0:
         raise RuntimeError(f"Snapshot archive is missing or empty: {archive}")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -161,6 +161,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.execute("INSERT INTO metadata(key,value) VALUES('created_utc',?)", (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),))
 
         insert_sql = "INSERT OR REPLACE INTO files(path,name,mime,size,sha256,encoding,is_html,data) VALUES(?,?,?,?,?,?,?,?)"
+        file_batch: list[tuple] = []
+        alias_batch: list[tuple[str, str]] = []
         with tarfile.open(archive, mode="r|bz2") as tar:
             for member in tar:
                 counters["members_seen"] += 1
@@ -175,6 +177,19 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
                     continue
                 with source:
                     data = source.read()
+                name = PurePosixPath(path).name
+                # Diagram names are fixed 32-character hexadecimal IDs. The app
+                # renders their SGF counterpart dynamically, so never store these PNGs.
+                is_diagram_png = (
+                    path.lower().endswith(".png")
+                    and len(name) == 36
+                    and name[32:].lower() == ".png"
+                    and re.fullmatch(r"[0-9a-fA-F]{32}", name[:32]) is not None
+                )
+                if is_diagram_png:
+                    counters["diagram_pngs_skipped"] += 1
+                    counters["diagram_png_bytes_skipped"] += len(data)
+                    continue
                 is_html = is_html_file(path, data)
                 mime = mime_for(path, is_html)
                 if mime.startswith("image/") and len(data) > MAX_IMAGE_BYTES:
@@ -182,73 +197,56 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
                     counters["image_bytes_removed"] += len(data)
                     continue
                 original_size = len(data)
-                stored, encoding = store_payload(data, path)
-                name = PurePosixPath(path).name
-                conn.execute(insert_sql, (path, name, mime, original_size, hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
+                stored, encoding = store_payload(data, path, compress_sgf=compress_sgf)
+                file_batch.append((path, name, mime, original_size, hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
+                # HTML aliases are added with the title in pass 2; avoid duplicate writes.
+                if not is_html:
+                    alias_batch.extend(alias_rows(path, name))
                 counters["files"] += 1
                 counters["bytes_original"] += original_size
                 counters["html_files"] += int(is_html)
                 counters["sgf_files"] += int(path.lower().endswith(".sgf"))
-                if counters["files"] % progress_every == 0:
+                if len(file_batch) >= 1000:
+                    conn.executemany(insert_sql, file_batch)
+                    conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", alias_batch)
                     conn.commit()
+                    file_batch.clear()
+                    alias_batch.clear()
                     print(f"Stored {counters['files']:,} files ({counters['bytes_original'] / (1024**2):,.1f} MiB uncompressed)", flush=True)
+        if file_batch:
+            conn.executemany(insert_sql, file_batch)
+            conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", alias_batch)
         conn.commit()
         if counters["files"] == 0:
             raise RuntimeError("No regular files were found in the tar.bz2 archive.")
         print(f"Import pass complete: {counters['files']:,} files", flush=True)
 
-        # Pass 2: register HTML titles and aliases; page HTML remains byte-for-byte unchanged.
-        html_paths = [row[0] for row in conn.execute("SELECT path FROM files WHERE is_html=1 ORDER BY path")]
-        for index, path in enumerate(html_paths, 1):
-            packed, encoding = conn.execute("SELECT data,encoding FROM files WHERE path=?", (path,)).fetchone()
+        # Pass 2: parse titles, then batch page and alias writes.
+        page_batch: list[tuple[str, str]] = []
+        html_alias_batch: list[tuple[str, str]] = []
+        html_count = int(conn.execute("SELECT COUNT(*) FROM files WHERE is_html=1").fetchone()[0])
+        cursor = conn.execute("SELECT path,name,data,encoding FROM files WHERE is_html=1 ORDER BY path")
+        for index, (path, name, packed, encoding) in enumerate(cursor, 1):
             raw = unpack_payload(packed, encoding)
             soup = BeautifulSoup(raw, "html.parser")
             title = soup.title.get_text(" ", strip=True) if soup.title else ""
             if not title:
                 heading = soup.find(["h1", "h2"])
                 title = heading.get_text(" ", strip=True) if heading else PurePosixPath(path).stem.replace("_", " ")
-            title = re.sub(r"\s+", " ", title).strip()[:300] or PurePosixPath(path).name
-            conn.execute("INSERT OR REPLACE INTO pages(path,title) VALUES(?,?)", (path, title))
-            add_alias(conn, path, path)
-            add_alias(conn, PurePosixPath(path).name, path)
-            add_alias(conn, PurePosixPath(path).stem, path)
-            add_alias(conn, PurePosixPath(path).with_suffix("").as_posix().replace("/", "."), path)
-            parts = PurePosixPath(path).with_suffix("").parts
-            if len(parts) >= 2:
-                add_alias(conn, ".".join(parts[-2:]), path)
-            add_alias(conn, title, path)
-            if index % progress_every == 0:
+            title = re.sub(r"\\s+", " ", title).strip()[:300] or name
+            page_batch.append((path, title))
+            html_alias_batch.extend(alias_rows(path, name, title))
+            if len(page_batch) >= 1000:
+                conn.executemany("INSERT OR REPLACE INTO pages(path,title) VALUES(?,?)", page_batch)
+                conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", html_alias_batch)
                 conn.commit()
-                print(f"Registered {index:,}/{len(html_paths):,} HTML pages", flush=True)
+                page_batch.clear()
+                html_alias_batch.clear()
+                print(f"Registered {index:,}/{html_count:,} HTML pages", flush=True)
+        if page_batch:
+            conn.executemany("INSERT OR REPLACE INTO pages(path,title) VALUES(?,?)", page_batch)
+            conn.executemany("INSERT OR IGNORE INTO aliases(alias,path) VALUES(?,?)", html_alias_batch)
         conn.commit()
-
-        # Also map every stored file by its relative path; this includes image,
-        # stylesheet, script, PDF and SGF attachments.
-        for (path,) in conn.execute("SELECT path FROM files ORDER BY path"):
-            add_alias(conn, path, path)
-            add_alias(conn, PurePosixPath(path).name, path)
-            add_alias(conn, PurePosixPath(path).stem, path)
-        conn.commit()
-
-        # The app dynamically renders matching SGF files in place of these PNGs,
-        # so remove the redundant diagram PNG payloads and their aliases.
-        diagram_png_rows = conn.execute("""
-            SELECT p.path, p.size
-            FROM files AS p
-            JOIN files AS s ON s.path = substr(p.path, 1, length(p.path) - 3) || 'sgf'
-            WHERE lower(p.path) LIKE '%.png'
-              AND length(p.name) = 36
-              AND substr(p.name, 33, 4) = '.png'
-              AND substr(p.name, 1, 32) NOT GLOB '*[^0-9A-Fa-f]*'
-        """).fetchall()
-        if diagram_png_rows:
-            diagram_paths = [row[0] for row in diagram_png_rows]
-            counters["diagram_pngs_removed"] = len(diagram_paths)
-            counters["diagram_png_bytes_removed"] = sum(int(row[1]) for row in diagram_png_rows)
-            conn.executemany("DELETE FROM aliases WHERE path=?", ((p,) for p in diagram_paths))
-            conn.executemany("DELETE FROM files WHERE path=?", ((p,) for p in diagram_paths))
-            conn.commit()
-            print(f"Removed {len(diagram_paths):,} redundant PNG diagrams ({counters['diagram_png_bytes_removed'] / (1024**2):,.1f} MiB); SGF viewers remain", flush=True)
 
         file_count = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
         page_count = int(conn.execute("SELECT COUNT(*) FROM pages").fetchone()[0])
@@ -308,10 +306,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--summary", type=Path, help="Optional JSON build summary path")
+    parser.add_argument("--summary", type=Path, help="Optional JSON build summary path")\n    parser.add_argument("--sgf-compression-report", type=Path, help="Use the measured SGF compression recommendation from this report")
     args = parser.parse_args()
     try:
-        result = build_database(args.archive, args.output)
+        result = build_database(args.archive, args.output, sgf_compression_report=args.sgf_compression_report)
         if args.summary:
             args.summary.parent.mkdir(parents=True, exist_ok=True)
             args.summary.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
