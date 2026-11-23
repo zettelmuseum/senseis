@@ -6,6 +6,7 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import struct
 import tarfile
 import time
@@ -70,6 +71,13 @@ def build_archive(archive: Path, output: Path, sgf_compression_report: Path | No
                 path = safe_path(member.name)
                 if path is None:
                     counts["unsafe_or_empty"] += 1
+                    continue
+                name = PurePosixPath(path).name
+                if (path.lower().endswith(".png") and len(name) == 36
+                        and name[32:].lower() == ".png"
+                        and re.fullmatch(r"[0-9a-fA-F]{32}", name[:32])):
+                    counts["diagram_pngs_skipped"] += 1
+                    counts["diagram_png_bytes_skipped"] += int(member.size)
                     continue
                 src = tar.extractfile(member)
                 if src is None:
@@ -154,6 +162,8 @@ def build_archive(archive: Path, output: Path, sgf_compression_report: Path | No
             "file_type_storage": dict(sorted(extstats.items(), key=lambda item: item[1]["stored_payload_bytes"], reverse=True)),
             "images_removed": counts["images_removed"],
             "image_bytes_removed": counts["image_bytes_removed"],
+            "diagram_pngs_skipped": counts["diagram_pngs_skipped"],
+            "diagram_png_bytes_skipped": counts["diagram_png_bytes_skipped"],
             "sgf_compression_enabled": int(compress_sgf),
             "archive_bytes": output.stat().st_size,
             "seconds": round(time.time() - started, 1),
