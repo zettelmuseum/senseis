@@ -443,8 +443,6 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         if temporary.exists():
             temporary.unlink()
         raise
-    finally:
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
