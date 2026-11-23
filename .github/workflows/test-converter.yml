@@ -26,11 +26,6 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Install pngquant
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends pngquant
-          pngquant --version
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Run bounded synthetic archive tests

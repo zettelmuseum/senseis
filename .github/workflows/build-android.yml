@@ -59,12 +59,6 @@ jobs:
             core.notice(message);
             core.info(message);
 
-      - name: Install pngquant
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends pngquant
-          pngquant --version
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -170,7 +164,7 @@ jobs:
               f"- Database size: {database['database_bytes']:,} bytes",
               f"- Database schema: {database.get('schema_version', 'unknown')}",
               f"- Images removed (>500 KiB): {database['images_removed']:,} ({database['image_bytes_removed']:,} source bytes)",
-              f"- PNGs optimized with pngquant (8 colors, --strip): {database.get('pngquant_converted', 0):,}/{database.get('png_files_seen', 0):,}; bytes saved: {database.get('pngquant_bytes_saved', 0):,}; unchanged: {database.get('pngquant_not_smaller', 0):,}; warnings: {database.get('pngquant_conversion_warnings', 0):,}",
+              f"- PNG image payloads retained pending SGF mapping analysis",
               f"- Database build time: {database['seconds']} seconds",
               f"- Android APK: {Path('app/build/SenseisLibrary.apk').stat().st_size:,} bytes",
               "",

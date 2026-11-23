@@ -117,60 +117,6 @@ class SenseisDatabaseTests(unittest.TestCase):
             finally:
                 conn.close()
 
-    def test_pngquant_reduces_png_to_eight_colors_and_strips_metadata(self):
-        import shutil
-        if not shutil.which("pngquant"):
-            self.skipTest("pngquant is not installed")
-
-        def chunk(kind: bytes, payload: bytes) -> bytes:
-            body = kind + payload
-            return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
-
-        width = height = 256
-        rows = bytearray()
-        state = 123456789
-        palette = [((i * 37) % 256, (i * 73) % 256, (i * 109) % 256) for i in range(32)]
-        for _y in range(height):
-            rows.append(0)
-            for _x in range(width):
-                state = (1664525 * state + 1013904223) & 0xffffffff
-                red, green, blue = palette[(state >> 27) & 31]
-                rows.extend((red, green, blue))
-        png = (
-            b"\x89PNG\r\n\x1a\n"
-            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-            + chunk(b"tEXt", b"Comment\x00metadata to strip")
-            + chunk(b"IDAT", zlib.compress(bytes(rows), 1))
-            + chunk(b"IEND", b"")
-        )
-
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            archive = root / "png.tar.bz2"
-            with tarfile.open(archive, "w:bz2") as tar:
-                info = tarfile.TarInfo("images/random.png")
-                info.size = len(png)
-                tar.addfile(info, io.BytesIO(png))
-            database = root / "senseis.db"
-            progress_log = io.StringIO()
-            with contextlib.redirect_stdout(progress_log):
-                result = build_database(archive, database, progress_every=1000)
-            conn = sqlite3.connect(database)
-            try:
-                optimized, mime = conn.execute(
-                    "SELECT data,mime FROM files WHERE path='images/random.png'"
-                ).fetchone()
-            finally:
-                conn.close()
-
-        self.assertIn("pngquant progress: 1/1 (100.0%)", progress_log.getvalue())
-        self.assertIn("pngquant complete: 1 PNG files", progress_log.getvalue())
-        self.assertEqual(result["png_files_seen"], 1)
-        self.assertEqual(result["pngquant_converted"], 1)
-        self.assertLess(len(optimized), len(png))
-        self.assertEqual(optimized[:8], bytes((137, 80, 78, 71, 13, 10, 26, 10)))
-        self.assertEqual(mime, "image/png")
-        self.assertNotIn(b"tEXt", optimized)
 
     def test_archive_path_traversal_is_rejected(self):
         from scripts.build_database import safe_tar_path

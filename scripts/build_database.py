@@ -11,10 +11,7 @@ import os
 import posixpath
 import re
 import sqlite3
-import shutil
-import subprocess
 import tarfile
-import tempfile
 import time
 import urllib.parse
 import zlib
@@ -29,8 +26,6 @@ HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
 SCHEMA_VERSION = 3
 MAX_IMAGE_BYTES = 500 * 1024
-PNGQUANT_COLORS = 8  # lossy palette target requested for Sensei's diagrams
-PNGQUANT_BATCH_SIZE = 128
 
 
 def safe_tar_path(name: str) -> str | None:
@@ -74,60 +69,6 @@ def store_payload(data: bytes, path: str) -> tuple[bytes, str]:
     return data, "raw"
 
 
-def optimize_pngs_with_pngquant(conn: sqlite3.Connection, records: list[tuple[str, Path, int]], counters: Counter[str]) -> None:
-    """Reduce PNG images to an 8-color palette and strip ancillary metadata."""
-    if not records:
-        print("pngquant: no PNG files to optimize", flush=True)
-        return
-    executable = shutil.which("pngquant")
-    if not executable:
-        raise RuntimeError("pngquant is required; install the pngquant package.")
-    version_result = subprocess.run([executable, "--version"], check=True, capture_output=True, text=True)
-    version = (version_result.stdout or version_result.stderr).strip()
-    counters["pngquant_optimizer_version"] = version
-    total = len(records)
-    counters["png_files_seen"] += total
-    counters["pngquant_bytes_before"] += sum(size for _, _, size in records)
-    started = time.monotonic()
-    batch_count = (total + PNGQUANT_BATCH_SIZE - 1) // PNGQUANT_BATCH_SIZE
-    print(f"pngquant: {total:,} PNG files; {version}; {PNGQUANT_COLORS} colors; --strip; {batch_count:,} batches", flush=True)
-    for batch_index, offset in enumerate(range(0, total, PNGQUANT_BATCH_SIZE), 1):
-        batch_started = time.monotonic()
-        batch = records[offset:offset + PNGQUANT_BATCH_SIZE]
-        for path, staged_path, original_size in batch:
-            optimized_path = staged_path.with_name(staged_path.stem + "-optimized.png")
-            completed = subprocess.run(
-                [executable, str(PNGQUANT_COLORS), "--strip", "--force", "--output", str(optimized_path), str(staged_path)],
-                capture_output=True, text=True, check=False
-            )
-            if completed.returncode != 0 or not optimized_path.is_file():
-                counters["pngquant_conversion_warnings"] += 1
-                counters["pngquant_not_smaller"] += 1
-                counters["pngquant_bytes_after"] += original_size
-                detail = (completed.stderr or completed.stdout).strip()
-                print(f"WARNING: pngquant failed for {path}: {detail[:300]}", flush=True)
-                continue
-            optimized = optimized_path.read_bytes()
-            optimized_path.unlink()
-            if optimized and len(optimized) < original_size:
-                conn.execute(
-                    "UPDATE files SET data=?,size=?,sha256=?,mime=?,encoding=? WHERE path=?",
-                    (sqlite3.Binary(optimized), len(optimized), hashlib.sha256(optimized).hexdigest(), "image/png", "raw", path)
-                )
-                counters["pngquant_converted"] += 1
-                counters["pngquant_bytes_saved"] += original_size - len(optimized)
-                counters["pngquant_bytes_after"] += len(optimized)
-            else:
-                counters["pngquant_not_smaller"] += 1
-                counters["pngquant_bytes_after"] += original_size
-        conn.commit()
-        completed_files = min(offset + len(batch), total)
-        elapsed = time.monotonic() - started
-        rate = completed_files / elapsed if elapsed > 0 else 0.0
-        eta = (total - completed_files) / rate if rate > 0 else 0.0
-        print(f"pngquant progress: {completed_files:,}/{total:,} ({completed_files * 100.0 / total:.1f}%) | batch {batch_index}/{batch_count} {time.monotonic() - batch_started:.1f}s | elapsed {elapsed / 60:.1f} min | {rate:.1f} files/s | ETA {eta / 60:.1f} min | saved {counters['pngquant_bytes_saved'] / (1024**2):.1f} MiB", flush=True)
-    elapsed = time.monotonic() - started
-    print(f"pngquant complete: {total:,} PNG files in {elapsed / 60:.1f} min; optimized {counters['pngquant_converted']:,}; unchanged {counters['pngquant_not_smaller']:,}; warnings {counters['pngquant_conversion_warnings']:,}; saved {counters['pngquant_bytes_saved'] / (1024**2):.1f} MiB", flush=True)
 
 def unpack_payload(data: bytes, encoding: str) -> bytes:
     return zlib.decompress(data) if encoding == "deflate" else data
@@ -348,8 +289,6 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
     temporary = output.with_suffix(output.suffix + ".part")
     if temporary.exists():
         temporary.unlink()
-    png_stage = Path(tempfile.mkdtemp(prefix="senseis-pngquant-", dir=output.parent))
-    png_records: list[tuple[str, Path, int]] = []
     conn = sqlite3.connect(str(temporary))
     started = time.time()
     counters: Counter[str] = Counter()
@@ -381,10 +320,6 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
                     counters["image_bytes_removed"] += len(data)
                     continue
                 original_size = len(data)
-                if mime == "image/png":
-                    staged_path = png_stage / f"{len(png_records):08d}.png"
-                    staged_path.write_bytes(data)
-                    png_records.append((path, staged_path, original_size))
                 stored, encoding = store_payload(data, path)
                 name = PurePosixPath(path).name
                 conn.execute(insert_sql, (path, name, mime, original_size, hashlib.sha256(data).hexdigest(), encoding, int(is_html), sqlite3.Binary(stored)))
@@ -398,8 +333,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.commit()
         if counters["files"] == 0:
             raise RuntimeError("No regular files were found in the tar.bz2 archive.")
-        print(f"Import pass complete: {counters['files']:,} files; optimizing PNG images with pngquant (8 colors, --strip)", flush=True)
-        optimize_pngs_with_pngquant(conn, png_records, counters)
+        print(f"Import pass complete: {counters['files']:,} files; PNG images retained unchanged pending SGF mapping analysis", flush=True)
 
         # Pass 2a: identify all HTML pages and create aliases before any links
         # are rewritten, so links to pages later in the tar stream also resolve.
@@ -493,14 +427,6 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             "uncompressed_bytes": int(counters["bytes_original"]),
             "images_removed": int(counters["images_removed"]),
             "image_bytes_removed": int(counters["image_bytes_removed"]),
-            "image_optimizer": str(counters["pngquant_optimizer_version"]) if counters["pngquant_optimizer_version"] else "not used",
-            "png_files_seen": int(counters["png_files_seen"]),
-            "pngquant_converted": int(counters["pngquant_converted"]),
-            "pngquant_bytes_before": int(counters["pngquant_bytes_before"]),
-            "pngquant_bytes_after": int(counters["pngquant_bytes_after"]),
-            "pngquant_not_smaller": int(counters["pngquant_not_smaller"]),
-            "pngquant_conversion_warnings": int(counters["pngquant_conversion_warnings"]),
-            "pngquant_bytes_saved": int(counters["pngquant_bytes_saved"]),
             "database_bytes_before_compaction": before_compaction_bytes,
             "database_freelist_pages_before_compaction": before_compaction_freelist_pages,
             "database_freelist_pages_after_compaction": after_compaction_freelist_pages,
@@ -518,7 +444,6 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             temporary.unlink()
         raise
     finally:
-        shutil.rmtree(png_stage, ignore_errors=True)
 
 
 def main() -> None:
