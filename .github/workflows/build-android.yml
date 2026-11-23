@@ -62,8 +62,8 @@ jobs:
       - name: Install lossy PNG optimizer
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends pngquant
-          pngquant --version
+          sudo apt-get install -y --no-install-recommends webp
+          cwebp -version
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -170,7 +170,7 @@ jobs:
               f"- Database size: {database['database_bytes']:,} bytes",
               f"- Database schema: {database.get('schema_version', 'unknown')}",
               f"- Images removed (>500 KiB): {database['images_removed']:,} ({database['image_bytes_removed']:,} source bytes)",
-              f"- PNGs compressed with {database.get('png_optimizer', 'pngquant')}: {database.get('png_optimized', 0):,}/{database.get('png_files_seen', 0):,}; bytes saved: {database.get('png_bytes_saved', 0):,}; unchanged: {database.get('png_not_smaller', 0):,}",
+              f"- PNGs converted to lossy WebP: {database.get('webp_converted', 0):,}/{database.get('png_files_seen', 0):,}; bytes saved: {database.get('webp_bytes_saved', 0):,}; unchanged: {database.get('webp_not_smaller', 0):,}; warnings: {database.get('webp_conversion_warnings', 0):,}",
               f"- Database build time: {database['seconds']} seconds",
               f"- Android APK: {Path('app/build/SenseisLibrary.apk').stat().st_size:,} bytes",
               "",

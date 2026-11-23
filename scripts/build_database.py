@@ -29,10 +29,9 @@ HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml"}
 TEXT_EXTENSIONS = {".html", ".htm", ".xhtml", ".shtml", ".php", ".css", ".js", ".txt", ".xml", ".json", ".sgf", ".md", ".csv", ".svg"}
 SCHEMA_VERSION = 3
 MAX_IMAGE_BYTES = 500 * 1024
-PNGQUANT_COLORS = 64
-PNGQUANT_QUALITY = "65-85"
-PNGQUANT_SPEED = 8
-PNGQUANT_BATCH_SIZE = 128
+WEBP_QUALITY = 80
+WEBP_METHOD = 4
+WEBP_BATCH_SIZE = 128
 
 
 def safe_tar_path(name: str) -> str | None:
@@ -76,109 +75,51 @@ def store_payload(data: bytes, path: str) -> tuple[bytes, str]:
     return data, "raw"
 
 
-def optimize_pngs_with_pngquant(
-    conn: sqlite3.Connection,
-    records: list[tuple[str, Path, int]],
-    counters: Counter[str],
-) -> None:
-    """Lossily quantize staged PNGs in batches and report live progress."""
+def optimize_pngs_to_webp(conn: sqlite3.Connection, records: list[tuple[str, Path, int]], counters: Counter[str]) -> None:
+    """Convert staged PNG images to lossy WebP when the result is smaller."""
     if not records:
-        print("pngquant: no PNG files to optimize", flush=True)
+        print("WebP: no PNG files to convert", flush=True)
         return
-    executable = shutil.which("pngquant")
+    executable = shutil.which("cwebp")
     if not executable:
-        raise RuntimeError("pngquant is required to optimize PNG images; install the pngquant command-line tool.")
-    version = subprocess.run(
-        [executable, "--version"], check=True, capture_output=True, text=True
-    ).stdout.strip()
-    counters["png_optimizer_version"] = version
+        raise RuntimeError("cwebp is required; install the webp package.")
+    version = subprocess.run([executable, "-version"], check=True, capture_output=True, text=True).stdout.strip()
+    counters["webp_optimizer_version"] = version
     total = len(records)
-    counters["png_files_seen"] += total
-    counters["png_bytes_before"] += sum(original_size for _, _, original_size in records)
+    counters["webp_files_seen"] += total
+    counters["webp_bytes_before"] += sum(size for _, _, size in records)
     started = time.monotonic()
-    batch_count = (total + PNGQUANT_BATCH_SIZE - 1) // PNGQUANT_BATCH_SIZE
-    print(
-        f"pngquant: starting {total:,} PNG files with {version}; "
-        f"{PNGQUANT_COLORS} colors, quality {PNGQUANT_QUALITY}, speed {PNGQUANT_SPEED}; "
-        f"{batch_count:,} batches of up to {PNGQUANT_BATCH_SIZE}",
-        flush=True,
-    )
-
-    for batch_index, offset in enumerate(range(0, total, PNGQUANT_BATCH_SIZE), 1):
+    batch_count = (total + WEBP_BATCH_SIZE - 1) // WEBP_BATCH_SIZE
+    print(f"WebP lossy: {total:,} PNG files; {version}; quality {WEBP_QUALITY}; method {WEBP_METHOD}; {batch_count:,} batches", flush=True)
+    for batch_index, offset in enumerate(range(0, total, WEBP_BATCH_SIZE), 1):
         batch_started = time.monotonic()
-        batch = records[offset:offset + PNGQUANT_BATCH_SIZE]
-        command = [
-            executable,
-            str(PNGQUANT_COLORS),
-            f"--quality={PNGQUANT_QUALITY}",
-            f"--speed={PNGQUANT_SPEED}",
-            "--ext", ".quant.png",
-            "--force",
-            "--skip-if-larger",
-            "--",
-            *(str(staged_path) for _, staged_path, _ in batch),
-        ]
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
-        if completed.returncode not in (0, 98, 99):
-            counters["pngquant_batch_warnings"] += 1
-            detail = (completed.stderr or completed.stdout).strip()
-            print(
-                f"WARNING: pngquant batch {batch_index}/{batch_count} "
-                f"returned {completed.returncode}: {detail[:500]}",
-                flush=True,
-            )
-
+        batch = records[offset:offset + WEBP_BATCH_SIZE]
         for path, staged_path, original_size in batch:
-            optimized_path = staged_path.with_name(staged_path.stem + ".quant.png")
-            if optimized_path.is_file():
-                optimized = optimized_path.read_bytes()
-                optimized_path.unlink()
-            else:
-                optimized = b""
-
+            webp_path = staged_path.with_suffix(".webp")
+            completed = subprocess.run([executable, "-quiet", "-q", str(WEBP_QUALITY), "-m", str(WEBP_METHOD), "-mt", str(staged_path), "-o", str(webp_path)], capture_output=True, text=True, check=False)
+            if completed.returncode != 0 or not webp_path.is_file():
+                counters["webp_conversion_warnings"] += 1
+                detail = (completed.stderr or completed.stdout).strip()
+                print(f"WARNING: cwebp failed for {path}: {detail[:300]}", flush=True)
+                continue
+            optimized = webp_path.read_bytes()
+            webp_path.unlink()
             if optimized and len(optimized) < original_size:
-                conn.execute(
-                    "UPDATE files SET data=?,size=?,sha256=? WHERE path=?",
-                    (
-                        sqlite3.Binary(optimized),
-                        len(optimized),
-                        hashlib.sha256(optimized).hexdigest(),
-                        path,
-                    ),
-                )
-                counters["png_optimized"] += 1
-                counters["png_bytes_saved"] += original_size - len(optimized)
-                counters["png_bytes_after"] += len(optimized)
+                conn.execute("UPDATE files SET data=?,size=?,sha256=?,mime='image/webp',encoding='raw' WHERE path=?", (sqlite3.Binary(optimized), len(optimized), hashlib.sha256(optimized).hexdigest(), path))
+                counters["webp_converted"] += 1
+                counters["webp_bytes_saved"] += original_size - len(optimized)
+                counters["webp_bytes_after"] += len(optimized)
             else:
-                counters["png_not_smaller"] += 1
-                counters["png_bytes_after"] += original_size
+                counters["webp_not_smaller"] += 1
+                counters["webp_bytes_after"] += original_size
         conn.commit()
-
         completed_files = min(offset + len(batch), total)
         elapsed = time.monotonic() - started
-        batch_seconds = time.monotonic() - batch_started
         rate = completed_files / elapsed if elapsed > 0 else 0.0
-        eta_seconds = (total - completed_files) / rate if rate > 0 else 0.0
-        percent = completed_files * 100.0 / total
-        print(
-            f"pngquant progress: {completed_files:,}/{total:,} "
-            f"({percent:.1f}%) | batch {batch_index}/{batch_count} "
-            f"{batch_seconds:.1f}s | elapsed {elapsed / 60:.1f} min | "
-            f"{rate:.1f} files/s | ETA {eta_seconds / 60:.1f} min | "
-            f"saved {counters['png_bytes_saved'] / (1024**2):.1f} MiB",
-            flush=True,
-        )
-
-    total_elapsed = time.monotonic() - started
-    print(
-        f"pngquant complete: {total:,} PNG files in {total_elapsed / 60:.1f} min; "
-        f"optimized {counters['png_optimized']:,}, unchanged "
-        f"{counters['png_not_smaller']:,}, saved "
-        f"{counters['png_bytes_saved'] / (1024**2):.1f} MiB",
-        flush=True,
-    )
-
-
+        eta = (total - completed_files) / rate if rate > 0 else 0.0
+        print(f"WebP progress: {completed_files:,}/{total:,} ({completed_files * 100.0 / total:.1f}%) | batch {batch_index}/{batch_count} {time.monotonic() - batch_started:.1f}s | elapsed {elapsed / 60:.1f} min | {rate:.1f} files/s | ETA {eta / 60:.1f} min | saved {counters['webp_bytes_saved'] / (1024**2):.1f} MiB", flush=True)
+    elapsed = time.monotonic() - started
+    print(f"WebP complete: {total:,} PNG files in {elapsed / 60:.1f} min; converted {counters['webp_converted']:,}; unchanged {counters['webp_not_smaller']:,}; warnings {counters['webp_conversion_warnings']:,}; saved {counters['webp_bytes_saved'] / (1024**2):.1f} MiB", flush=True)
 def unpack_payload(data: bytes, encoding: str) -> bytes:
     return zlib.decompress(data) if encoding == "deflate" else data
 
@@ -398,7 +339,7 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
     temporary = output.with_suffix(output.suffix + ".part")
     if temporary.exists():
         temporary.unlink()
-    png_stage = Path(tempfile.mkdtemp(prefix="senseis-pngquant-", dir=output.parent))
+    png_stage = Path(tempfile.mkdtemp(prefix="senseis-webp-", dir=output.parent))
     png_records: list[tuple[str, Path, int]] = []
     conn = sqlite3.connect(str(temporary))
     started = time.time()
@@ -448,8 +389,8 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
         conn.commit()
         if counters["files"] == 0:
             raise RuntimeError("No regular files were found in the tar.bz2 archive.")
-        print(f"Import pass complete: {counters['files']:,} files; optimizing PNG images", flush=True)
-        optimize_pngs_with_pngquant(conn, png_records, counters)
+        print(f"Import pass complete: {counters['files']:,} files; converting PNG images to lossy WebP", flush=True)
+        optimize_pngs_to_webp(conn, png_records, counters)
 
         # Pass 2a: identify all HTML pages and create aliases before any links
         # are rewritten, so links to pages later in the tar stream also resolve.
@@ -543,13 +484,14 @@ def build_database(archive: Path, output: Path, progress_every: int = 2500) -> d
             "uncompressed_bytes": int(counters["bytes_original"]),
             "images_removed": int(counters["images_removed"]),
             "image_bytes_removed": int(counters["image_bytes_removed"]),
-            "png_optimizer": str(counters["png_optimizer_version"]) if counters["png_optimizer_version"] else "not used",
-            "png_files_seen": int(counters["png_files_seen"]),
-            "png_optimized": int(counters["png_optimized"]),
-            "png_bytes_before": int(counters["png_bytes_before"]),
-            "png_bytes_after": int(counters["png_bytes_after"]),
-            "png_not_smaller": int(counters["png_not_smaller"]),
-            "png_bytes_saved": int(counters["png_bytes_saved"]),
+            "image_optimizer": str(counters["webp_optimizer_version"]) if counters["webp_optimizer_version"] else "not used",
+            "png_files_seen": int(counters["webp_files_seen"]),
+            "webp_converted": int(counters["webp_converted"]),
+            "webp_bytes_before": int(counters["webp_bytes_before"]),
+            "webp_bytes_after": int(counters["webp_bytes_after"]),
+            "webp_not_smaller": int(counters["webp_not_smaller"]),
+            "webp_conversion_warnings": int(counters["webp_conversion_warnings"]),
+            "webp_bytes_saved": int(counters["webp_bytes_saved"]),
             "database_bytes_before_compaction": before_compaction_bytes,
             "database_freelist_pages_before_compaction": before_compaction_freelist_pages,
             "database_freelist_pages_after_compaction": after_compaction_freelist_pages,

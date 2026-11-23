@@ -117,7 +117,7 @@ class SenseisDatabaseTests(unittest.TestCase):
             finally:
                 conn.close()
 
-    def test_pngquant_lossy_compression_reduces_png_without_resizing(self):
+    def test_webp_lossy_conversion_reduces_png_and_updates_mime(self):
         def chunk(kind: bytes, payload: bytes) -> bytes:
             body = kind + payload
             return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
@@ -158,14 +158,19 @@ class SenseisDatabaseTests(unittest.TestCase):
             finally:
                 conn.close()
 
-        self.assertIn("pngquant progress: 1/1 (100.0%)", progress_log.getvalue())
-        self.assertIn("pngquant complete: 1 PNG files", progress_log.getvalue())
-
+        self.assertIn("WebP progress: 1/1 (100.0%)", progress_log.getvalue())
+        self.assertIn("WebP complete: 1 PNG files", progress_log.getvalue())
         self.assertEqual(result["png_files_seen"], 1)
-        self.assertEqual(result["png_optimized"], 1)
+        self.assertEqual(result["webp_converted"], 1)
         self.assertLess(len(optimized), len(png))
-        self.assertEqual(optimized[:8], b"\x89PNG\r\n\x1a\n")
-        self.assertEqual(struct.unpack(">II", optimized[16:24]), (width, height))
+        self.assertEqual(optimized[:4], b"RIFF")
+        self.assertEqual(optimized[8:12], b"WEBP")
+        conn = sqlite3.connect(database)
+        try:
+            mime = conn.execute("SELECT mime FROM files WHERE path='images/random.png'").fetchone()[0]
+            self.assertEqual(mime, "image/webp")
+        finally:
+            conn.close()
 
     def test_archive_path_traversal_is_rejected(self):
         from scripts.build_database import safe_tar_path
