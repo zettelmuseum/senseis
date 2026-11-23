@@ -36,6 +36,7 @@ test -s "$DEX/classes.dex"
 
 "$AAPT" package -f \
   -M "$ROOT/app/src/main/AndroidManifest.xml" \
+  -A "$ROOT/app/src/main/assets" \
   -I "$ANDROID_JAR" \
   --min-sdk-version 23 \
   --target-sdk-version "$ANDROID_API" \
