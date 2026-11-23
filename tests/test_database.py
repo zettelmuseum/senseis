@@ -129,6 +129,18 @@ class SenseisDatabaseTests(unittest.TestCase):
         self.assertIsNone(safe_tar_path("../outside.html"))
         self.assertIsNone(safe_tar_path("/absolute/file.html"))
         self.assertEqual(safe_tar_path("snapshot/pages/one.html"), "snapshot/pages/one.html")
+    def test_fast_title_extraction_handles_entities_and_fallback(self):
+        from scripts.build_database import extract_page_title
+        self.assertEqual(
+            extract_page_title(b"<html><head><title>Go &amp; <b>Life</b></title></head></html>", "a.html", "a.html"),
+            "Go & Life",
+        )
+        self.assertEqual(
+            extract_page_title(b"<html><body><h1>Heading <em>Text</em></h1></body></html>", "a.html", "a.html"),
+            "Heading Text",
+        )
+        self.assertEqual(extract_page_title(b"<html></html>", "some_page.html", "some_page.html"), "some page")
+
     def test_sgf_compression_is_opt_in(self):
         from scripts.build_database import store_payload
         original = b"(;GM[1]FF[4]SZ[19];B[pd];W[dd])" * 100
