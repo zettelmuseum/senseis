@@ -208,8 +208,7 @@ function enforceDarkPage() {
             });
         });
         window.__senseisDarkObserver.observe(document.documentElement, {
-            subtree: true, childList: true, attributes: true,
-            attributeFilter: ["style", "bgcolor"]
+            subtree: true, childList: true
         });
     }
 }
